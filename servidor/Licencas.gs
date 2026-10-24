@@ -11,20 +11,26 @@ var ABA_CLIENTES = 'Clientes';
 var ABA_INST = 'Instalações';
 var ABA_LOG = 'Acessos';
 var ABA_CFG = 'Config';
+var ABA_PLANOS = 'Planos';
+var ABA_PAG = 'Pagamentos';
+var ABA_ABAS = 'Abas';
+var CAB_ABAS = ['Chave (ou TODOS)', 'Abas escondidas', 'Abas personalizadas (não editar à mão)'];
 
 var COL = { // colunas da aba Clientes (1 = A)
   chave: 1, nome: 2, contato: 3, status: 4, maxInst: 5, validade: 6,
-  criada: 7, ativada: 8, ultimo: 9, acessos: 10, obs: 11
+  criada: 7, ativada: 8, ultimo: 9, acessos: 10, obs: 11, plano: 12, valor: 13
 };
 var CAB_CLIENTES = ['Chave', 'Nome do cliente', 'Contato (WhatsApp/e-mail)', 'Status', 'Máx. instalações',
-  'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações'];
+  'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações', 'Plano', 'Valor (R$)'];
+var CAB_PLANOS = ['Plano', 'Valor (R$)', 'Instalações', 'Dias de acesso (vazio = para sempre)', 'Descrição'];
+var CAB_PAG = ['Data', 'Chave', 'Cliente', 'Valor (R$)', 'Forma', 'Referente a', 'Observação'];
 var CAB_INST = ['Chave', 'Cliente', 'Conta Google', 'Planilha do cliente', 'ID da planilha', 'Primeiro acesso', 'Último acesso', 'Aberturas', 'Versão'];
 var CAB_LOG = ['Quando', 'Chave', 'Conta Google', 'Ação', 'Resultado'];
 
 /* ---------- Menu ---------- */
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('🔐 Licenças')
-    .addItem('📊 Painel de acompanhamento', 'abrirPainelDono')
+    .addItem('📊 Abrir painel de vendas', 'abrirPainelDono')
     .addItem('➕ Nova licença (nova venda)', 'novaLicenca')
     .addSeparator()
     .addItem('⛔ Bloquear cliente da linha selecionada', 'bloquearSelecionada')
@@ -42,13 +48,23 @@ function configurar() {
   aba_(ABA_CLIENTES, CAB_CLIENTES);
   aba_(ABA_INST, CAB_INST);
   aba_(ABA_LOG, CAB_LOG);
+  aba_(ABA_PAG, CAB_PAG);
+  aba_(ABA_ABAS, CAB_ABAS);
+  var pl = aba_(ABA_PLANOS, CAB_PLANOS);
+  if (pl.getLastRow() < 2) {
+    pl.appendRow(['Vitalício', 197, 1, '', 'Paga uma vez e usa para sempre']);
+    pl.appendRow(['Mensal', 29.9, 1, 30, 'Renova todo mês']);
+    pl.appendRow(['Anual', 247, 2, 365, 'Um ano, até 2 planilhas']);
+  }
   var cfg = aba_(ABA_CFG, ['Item', 'Valor', 'Explicação']);
   var padrao = [
     ['ID do arquivo do painel', '', 'ID do arquivo painel.html no seu Drive (passo 2 do guia).'],
     ['Versão do painel', '1', 'Aumenta sozinho quando você usa "Publicar nova versão".'],
     ['Link de cópia do modelo', '', 'Link do modelo terminando em /copy (passo 4 do guia).'],
     ['Nome do produto', 'Centro de Comando', 'Aparece na mensagem de venda.'],
-    ['Máx. instalações padrão', '1', 'Quantas planilhas/contas cada chave pode usar.']
+    ['Máx. instalações padrão', '1', 'Quantas planilhas/contas cada chave pode usar.'],
+    ['Chave Pix', '', 'Aparece na mensagem de venda e na cobrança.'],
+    ['Seu WhatsApp', '', 'Só números, com DDD. Ex.: 11999998888']
   ];
   var tem = cfg.getLastRow() > 1 ? cfg.getRange(2, 1, cfg.getLastRow() - 1, 1).getValues().map(function (l) { return l[0]; }) : [];
   padrao.forEach(function (l) { if (tem.indexOf(l[0]) < 0) cfg.appendRow(l); });
@@ -65,8 +81,8 @@ function configurar() {
   cl.setConditionalFormatRules(cond);
 
   var s = ss.getSheets();
-  [ABA_CLIENTES, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
-  s.forEach(function (x) { if ([ABA_CLIENTES, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
+  [ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
+  s.forEach(function (x) { if ([ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
   ss.setActiveSheet(cfg);
   SpreadsheetApp.getUi().alert('Configurado ✅', 'Agora preencha na aba "Config" o ID do arquivo do painel e o link de cópia do modelo. Depois siga o guia.', SpreadsheetApp.getUi().ButtonSet.OK);
 }
@@ -117,15 +133,32 @@ function novaLicenca() {
   ui.showModalDialog(html, 'Mensagem para o cliente');
 }
 
-function criarLicenca(nome, contato) {
+function planos_() {
+  var sh = ss_().getSheetByName(ABA_PLANOS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, CAB_PLANOS.length).getValues().filter(function (l) { return l[0]; })
+    .map(function (l) { return { nome: String(l[0]), valor: Number(l[1]) || 0, inst: Number(l[2]) || 1, dias: Number(l[3]) || 0, desc: String(l[4] || '') }; });
+}
+function acharPlano_(nome) { return planos_().filter(function (p) { return p.nome === nome; })[0] || null; }
+
+function criarLicenca(nome, contato, opc) {
+  opc = opc || {};
   var chave = gerarChave_();
+  var plano = opc.plano ? acharPlano_(opc.plano) : null;
+  var valor = opc.valor != null && opc.valor !== '' ? Number(opc.valor) : (plano ? plano.valor : '');
   comTrava_(function () {
     var sh = ss_().getSheetByName(ABA_CLIENTES);
     var l = new Array(CAB_CLIENTES.length).fill('');
     l[COL.chave - 1] = chave; l[COL.nome - 1] = nome; l[COL.contato - 1] = contato;
     l[COL.status - 1] = 'Ativa'; l[COL.maxInst - 1] = Number(cfg_('Máx. instalações padrão')) || 1;
     l[COL.criada - 1] = new Date(); l[COL.acessos - 1] = 0;
+    if (plano) {
+      l[COL.plano - 1] = plano.nome; l[COL.maxInst - 1] = plano.inst;
+      if (plano.dias) l[COL.validade - 1] = new Date(Date.now() + plano.dias * 864e5);
+    }
+    l[COL.valor - 1] = valor;
     sh.appendRow(l);
+    if (opc.pago && valor) registrarPagamento_(chave, nome, valor, opc.forma || 'Pix', plano ? plano.nome : 'Compra');
   });
   return { chave: chave, mensagem: mensagemVenda_(nome, chave) };
 }
@@ -138,7 +171,8 @@ function mensagemVenda_(nome, chave) {
     '2) Na planilha copiada, clique no menu ⚙ ' + prod + ' → 🔑 Ativar licença.\n' +
     '   (Na primeira vez o Google pede permissão: clique em Continuar → Avançado → Acessar → Permitir.)\n\n' +
     '3) Digite sua chave: ' + chave + '\n\n' +
-    '4) Pronto! Use ⚙ ' + prod + ' → ▶ Abrir painel.\n\nQualquer dúvida, é só me chamar.';
+    '4) Pronto! Use ⚙ ' + prod + ' → ▶ Abrir painel.\n\nQualquer dúvida, é só me chamar.' +
+    (cfg_('Chave Pix') ? '\n\nPagamento via Pix: ' + cfg_('Chave Pix') : '');
 }
 
 function mudarStatusLinha_(status) {
@@ -175,7 +209,7 @@ function publicarVersao() {
 /* ---------- Painel do dono ---------- */
 function abrirPainelDono() {
   var t = HtmlService.createTemplateFromFile('PainelDono');
-  SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(1100).setHeight(720), 'Acompanhamento de clientes');
+  SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(1200).setHeight(800), 'Painel de vendas');
 }
 
 function dadosPainelDono() {
@@ -187,11 +221,24 @@ function dadosPainelDono() {
   return JSON.stringify({
     versao: cfg_('Versão do painel'),
     link: cfg_('Link de cópia do modelo'),
+    produto: cfg_('Nome do produto') || 'Centro de Comando',
+    pix: cfg_('Chave Pix'), whats: cfg_('Seu WhatsApp'),
+    servidor: (function () { try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; } })(),
+    planilha: ss_().getUrl(),
+    planos: planos_(),
+    pagamentos: (function () {
+      var sh = ss_().getSheetByName(ABA_PAG);
+      if (!sh || sh.getLastRow() < 2) return [];
+      return sh.getRange(2, 1, sh.getLastRow() - 1, CAB_PAG.length).getValues().map(function (l, i) {
+        return { linha: i + 2, data: data(l[0]), chave: l[1], cliente: l[2], valor: Number(l[3]) || 0, forma: l[4], ref: l[5], obs: l[6] };
+      }).filter(function (x) { return x.chave; });
+    })(),
     clientes: clientes.filter(function (l) { return l[0]; }).map(function (l, i) {
       return {
         linha: i + 2, chave: l[COL.chave - 1], nome: l[COL.nome - 1], contato: l[COL.contato - 1], status: l[COL.status - 1],
         max: l[COL.maxInst - 1], validade: data(l[COL.validade - 1]), criada: data(l[COL.criada - 1]),
-        ultimo: data(l[COL.ultimo - 1]), acessos: l[COL.acessos - 1]
+        ultimo: data(l[COL.ultimo - 1]), acessos: l[COL.acessos - 1],
+        plano: l[COL.plano - 1] || '', valor: Number(l[COL.valor - 1]) || 0, obs: l[COL.obs - 1] || ''
       };
     }),
     instalacoes: insts.filter(function (l) { return l[0]; }).map(function (l) {
@@ -209,7 +256,66 @@ function painelMudarStatus(chave, status) {
   return true;
 }
 
-function painelNovaLicenca(nome, contato) { return JSON.stringify(criarLicenca(String(nome).trim(), String(contato || '').trim())); }
+function painelNovaLicenca(nome, contato, opcJson) {
+  var opc = opcJson ? JSON.parse(opcJson) : {};
+  return JSON.stringify(criarLicenca(String(nome).trim(), String(contato || '').trim(), opc));
+}
+
+/* ---------- Pagamentos ---------- */
+function registrarPagamento_(chave, nome, valor, forma, ref, obs) {
+  aba_(ABA_PAG, CAB_PAG).appendRow([new Date(), chave, nome, Number(valor) || 0, forma || '', ref || '', obs || '']);
+}
+/* Registra um pagamento. Se o plano tem prazo, empurra a validade e reativa a licença. */
+function painelPagamento(json) {
+  var o = JSON.parse(json);
+  return comTrava_(function () {
+    var sh = ss_().getSheetByName(ABA_CLIENTES), c = acharCliente_(sh, String(o.chave).toUpperCase());
+    if (!c) throw new Error('Cliente não encontrado');
+    var v = c.valores, plano = acharPlano_(String(v[COL.plano - 1] || ''));
+    var valor = Number(o.valor) || Number(v[COL.valor - 1]) || 0;
+    registrarPagamento_(v[COL.chave - 1], v[COL.nome - 1], valor, o.forma, o.ref || (plano ? plano.nome : ''), o.obs);
+    if (plano && plano.dias) {
+      var atual = v[COL.validade - 1] instanceof Date ? v[COL.validade - 1].getTime() : 0;
+      var base = Math.max(atual, Date.now());
+      sh.getRange(c.linha, COL.validade).setValue(new Date(base + plano.dias * 864e5));
+    }
+    if (String(v[COL.status - 1]) === 'Vencida') sh.getRange(c.linha, COL.status).setValue('Ativa');
+    return true;
+  });
+}
+function painelApagarPagamento(linha) {
+  var sh = ss_().getSheetByName(ABA_PAG);
+  linha = Number(linha);
+  if (linha >= 2 && linha <= sh.getLastRow()) sh.deleteRow(linha);
+  return true;
+}
+
+/* ---------- Planos e preços ---------- */
+function painelSalvarPlanos(json) {
+  var lista = JSON.parse(json).filter(function (p) { return p.nome && String(p.nome).trim(); });
+  var sh = aba_(ABA_PLANOS, CAB_PLANOS);
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, CAB_PLANOS.length).clearContent();
+  if (lista.length) sh.getRange(2, 1, lista.length, CAB_PLANOS.length).setValues(lista.map(function (p) {
+    return [String(p.nome).trim(), Number(p.valor) || 0, Math.max(1, Number(p.inst) || 1), Number(p.dias) || '', String(p.desc || '')];
+  }));
+  return true;
+}
+function painelEditarCliente(json) {
+  var o = JSON.parse(json);
+  var sh = ss_().getSheetByName(ABA_CLIENTES), c = acharCliente_(sh, String(o.chave).toUpperCase());
+  if (!c) throw new Error('Cliente não encontrado');
+  if (o.valor != null) sh.getRange(c.linha, COL.valor).setValue(Number(o.valor) || 0);
+  if (o.max != null) sh.getRange(c.linha, COL.maxInst).setValue(Math.max(1, Number(o.max) || 1));
+  if (o.plano != null) sh.getRange(c.linha, COL.plano).setValue(o.plano);
+  if (o.validade !== undefined) sh.getRange(c.linha, COL.validade).setValue(o.validade ? new Date(o.validade + 'T23:59:00') : '');
+  if (o.obs != null) sh.getRange(c.linha, COL.obs).setValue(o.obs);
+  return true;
+}
+function painelSalvarConfig(json) {
+  var o = JSON.parse(json);
+  ['Link de cópia do modelo', 'Nome do produto', 'Chave Pix', 'Seu WhatsApp'].forEach(function (k) { if (o[k] != null) cfgSet_(k, String(o[k]).trim()); });
+  return true;
+}
 function painelMensagem(chave) {
   var sh = ss_().getSheetByName(ABA_CLIENTES);
   var r = acharCliente_(sh, chave);
@@ -276,7 +382,7 @@ function atender_(d) {
     cl.getRange(c.linha, COL.acessos).setValue((Number(v[COL.acessos - 1]) || 0) + 1);
     if (d.acao !== 'checar') log_(chave, email, d.acao, 'ok');
 
-    var resp = { ok: true, status: 'Ativa', cliente: v[COL.nome - 1], versao: cfg_('Versão do painel') || '1' };
+    var resp = { ok: true, status: 'Ativa', cliente: v[COL.nome - 1], versao: cfg_('Versão do painel') || '1', extras: extrasDe_(chave) };
     if (d.acao === 'baixar') {
       var html = lerPainel_();
       if (!html) return { ok: false, msg: 'O painel ainda não foi publicado pelo vendedor.' };
@@ -335,4 +441,58 @@ function ss_() {
   var a = SpreadsheetApp.getActiveSpreadsheet();
   if (a) p.setProperty('PLANILHA_ID', a.getId());
   return a;
+}
+
+/* =====================================================================
+   ABAS POR CLIENTE — esconder abas e criar abas personalizadas.
+   Linha "TODOS" vale para todo mundo; a linha da chave completa/substitui.
+   ===================================================================== */
+var TIPOS_ABA = ['tabela', 'checklist', 'links', 'notas'];
+
+function lerAbas_() {
+  var sh = ss_().getSheetByName(ABA_ABAS), out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (l) {
+    var k = String(l[0]).trim().toUpperCase();
+    if (!k) return;
+    var abas = [];
+    try { abas = JSON.parse(l[2] || '[]'); } catch (e) {}
+    out[k] = { ocultas: String(l[1] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), abas: Array.isArray(abas) ? abas : [] };
+  });
+  return out;
+}
+
+function extrasDe_(chave) {
+  var t = lerAbas_(), todos = t.TODOS || { ocultas: [], abas: [] }, meu = t[chave];
+  var ocultas = meu ? meu.ocultas : todos.ocultas;
+  var abas = todos.abas.concat(meu ? meu.abas : []);
+  return { ocultas: ocultas, abas: abas.filter(function (a) { return a && a.id && a.nome && TIPOS_ABA.indexOf(a.tipo) >= 0; }) };
+}
+
+function limparAba_(a) {
+  return {
+    id: String(a.id || Utilities.getUuid().slice(0, 8)).replace(/[^a-z0-9]/gi, '').slice(0, 20),
+    nome: String(a.nome || '').trim().slice(0, 40),
+    tipo: TIPOS_ABA.indexOf(a.tipo) >= 0 ? a.tipo : 'tabela',
+    colunas: (Array.isArray(a.colunas) ? a.colunas : String(a.colunas || '').split(','))
+      .map(function (c) { return String(c).trim().slice(0, 40); }).filter(Boolean).slice(0, 12)
+  };
+}
+
+function painelAbas(chave) {
+  var t = lerAbas_(), k = String(chave || 'TODOS').toUpperCase();
+  return JSON.stringify(t[k] || { ocultas: [], abas: [], novo: true });
+}
+
+function painelSalvarAbas(chave, json) {
+  var k = String(chave || 'TODOS').toUpperCase(), o = JSON.parse(json);
+  var ocultas = (o.ocultas || []).map(function (x) { return String(x).replace(/[^a-z0-9_-]/gi, ''); }).filter(Boolean);
+  var abas = (o.abas || []).map(limparAba_).filter(function (a) { return a.nome; });
+  return comTrava_(function () {
+    var sh = aba_(ABA_ABAS, CAB_ABAS), n = sh.getLastRow(), linha = 0;
+    if (n > 1) sh.getRange(2, 1, n - 1, 1).getValues().forEach(function (l, i) { if (String(l[0]).trim().toUpperCase() === k) linha = i + 2; });
+    var valores = [[k, ocultas.join(','), JSON.stringify(abas)]];
+    if (linha) sh.getRange(linha, 1, 1, 3).setValues(valores); else sh.appendRow(valores[0]);
+    return true;
+  });
 }

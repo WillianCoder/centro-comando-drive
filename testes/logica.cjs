@@ -1,43 +1,6 @@
 // Testa a lógica do servidor (licenças) e do banco do cliente com um Google "de mentira".
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
-function planilhaFalsa() {
-  const abas = {};
-  function aba(nome) {
-    const d = []; let fmt;
-    const sh = {
-      getName: () => nome, getLastRow: () => d.length,
-      getRange(r, c, nr = 1, nc = 1) {
-        if (typeof r === 'string') return { setNumberFormat() { return this; }, setValues(v) { if (/^A1:/.test(r)) d[0] = v[0].slice(); }, setValue() { return this; }, setFontSize() { return this; }, setFontWeight() { return this; } };
-        return {
-          getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => ((d[r - 1 + i] || [])[c - 1 + j] ?? ''))),
-          getValue() { return this.getValues()[0][0]; },
-          setValues(v) { v.forEach((l, i) => { d[r - 1 + i] = d[r - 1 + i] || []; l.forEach((x, j) => d[r - 1 + i][c - 1 + j] = x); }); return this; },
-          setValue(x) { return this.setValues([[x]]); },
-          setNumberFormat() { return this; }, setFontWeight() { return this; }, setBackground() { return this; }, setFontColor() { return this; }, setDataValidation() { return this; }
-        };
-      },
-      appendRow(l) { d.push(l.slice()); }, deleteRow(r) { d.splice(r - 1, 1); }, deleteRows(r, n) { d.splice(r - 1, n); },
-      setFrozenRows() {}, hideSheet() {}, setColumnWidth() {}, setColumnWidths() {}, _d: d
-    };
-    return sh;
-  }
-  return { abas, getSheetByName: n => abas[n] || null, insertSheet: n => (abas[n] = aba(n)), getId: () => 'PLAN1', getName: () => 'Plan' };
-}
-function contexto(ss) {
-  const props = {};
-  const ctx = {
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => props[k] = v, deleteProperty: k => delete props[k] }) },
-    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }), getDocumentLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    CacheService: { getScriptCache: () => ({ get: () => null, put() {}, remove() {} }) },
-    DriveApp: { getFileById: () => ({ getBlob: () => ({ getDataAsString: () => "<html><head></head>const A='1abcdefghijklmnopqrstuvwxyz12'</html>" }) }) },
-    Utilities: { getUuid: () => Math.random() + '', computeDigest: () => Array.from({ length: 32 }, () => Math.floor(Math.random() * 256) - 128), DigestAlgorithm: {} },
-    ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: {} },
-    console
-  };
-  vm.createContext(ctx); return ctx;
-}
-
+const { planilhaFalsa, contexto } = require('./google-falso.cjs');
 // ---- Servidor ----
 const ss = planilhaFalsa(), S = contexto(ss);
 vm.runInContext(fs.readFileSync('servidor/Licencas.gs', 'utf8'), S);
@@ -57,7 +20,38 @@ S.painelMudarStatus(chave, 'Ativa');
 assert.ok(S.atender_({ acao: 'checar', chave, planilhaId: 'P1' }).ok);
 assert.equal(S.atender_({ acao: 'checar', chave: 'CC-AAAA-BBBB-CCCC', planilhaId: 'P1' }).ok, false);
 const dono = JSON.parse(S.dadosPainelDono()); assert.equal(dono.clientes.length, 1); assert.equal(dono.instalacoes[0].aberturas, 3);
-console.log('servidor ok');
+// planos, pagamentos e renovação
+S.aba_('Planos', S.CAB_PLANOS); S.aba_('Pagamentos', S.CAB_PAG); S.aba_('Abas', S.CAB_ABAS);
+S.painelSalvarPlanos(JSON.stringify([{ nome: 'Mensal', valor: 30, inst: 1, dias: 30 }, { nome: 'Vitalício', valor: 200, inst: 2, dias: '' }]));
+assert.equal(S.planos_().length, 2);
+const m = JSON.parse(S.painelNovaLicenca('Mensalista', '11988887777', JSON.stringify({ plano: 'Mensal', pago: true, forma: 'Pix' })));
+let dd = JSON.parse(S.dadosPainelDono()), cm = dd.clientes.find(c => c.chave === m.chave);
+assert.equal(cm.valor, 30); assert.equal(cm.plano, 'Mensal'); assert.ok(cm.validade);
+assert.equal(dd.pagamentos.length, 1); assert.equal(dd.pagamentos[0].valor, 30);
+const val1 = new Date(cm.validade).getTime();
+S.painelPagamento(JSON.stringify({ chave: m.chave, forma: 'Pix' }));
+dd = JSON.parse(S.dadosPainelDono()); cm = dd.clientes.find(c => c.chave === m.chave);
+assert.ok(new Date(cm.validade).getTime() - val1 > 29 * 864e5, 'pagamento renova 30 dias');
+assert.equal(dd.pagamentos.length, 2);
+// licença vencida trava e pagamento destrava
+S.painelEditarCliente(JSON.stringify({ chave: m.chave, validade: '2020-01-01' }));
+assert.equal(S.atender_({ acao: 'checar', chave: m.chave, planilhaId: 'M1' }).status, 'Vencida');
+S.painelPagamento(JSON.stringify({ chave: m.chave }));
+assert.ok(S.atender_({ acao: 'checar', chave: m.chave, planilhaId: 'M1' }).ok, 'pagamento reativa');
+S.painelApagarPagamento(2); assert.equal(JSON.parse(S.dadosPainelDono()).pagamentos.length, 2);
+// abas
+S.painelSalvarAbas('TODOS', JSON.stringify({ ocultas: ['cofin', 'belico'], abas: [{ nome: 'Viaturas', tipo: 'tabela', colunas: 'Placa, Modelo' }] }));
+S.painelSalvarAbas(m.chave, JSON.stringify({ ocultas: ['sei'], abas: [{ nome: 'Tarefas', tipo: 'checklist' }, { nome: '<b>x</b>', tipo: 'hack' }] }));
+let ex = S.atender_({ acao: 'checar', chave: m.chave, planilhaId: 'M1' }).extras;
+assert.deepEqual(ex.ocultas, ['sei']); assert.deepEqual(ex.abas.map(a => a.nome), ['Viaturas', 'Tarefas', '<b>x</b>']);
+assert.equal(ex.abas[2].tipo, 'tabela', 'tipo inválido vira tabela');
+assert.deepEqual(ex.abas[0].colunas, ['Placa', 'Modelo']);
+ex = S.atender_({ acao: 'checar', chave, planilhaId: 'P1' }).extras;
+assert.deepEqual(ex.ocultas, ['cofin', 'belico']);
+S.painelSalvarAbas('TODOS', JSON.stringify({ ocultas: [], abas: [] }));
+assert.equal(ss.abas['Abas']._d.length, 3, 'atualiza a linha, não duplica');
+assert.ok(S.mensagemVenda_('Ana', 'CC-1').includes('CC-1'));
+console.log('servidor ok (licenças, planos, pagamentos, abas)');
 
 // ---- Banco do cliente ----
 const ss2 = planilhaFalsa(), C = contexto(ss2);

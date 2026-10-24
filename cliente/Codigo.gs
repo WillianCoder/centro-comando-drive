@@ -84,6 +84,12 @@ function montarSaida_() {
   } else {
     html = ponte + html;
   }
+  // Abas escondidas / personalizadas definidas pelo vendedor
+  var extras = props_().getProperty('EXTRAS') || '{}';
+  var bloco = '<script>window.CC_EXTRAS=' + extras.replace(/</g, '\\u003c') + ';</' + 'script>' +
+    HtmlService.createHtmlOutputFromFile('Extras').getContent();
+  var f = html.lastIndexOf('</body>');
+  html = f >= 0 ? html.slice(0, f) + bloco + html.slice(f) : html + bloco;
   return HtmlService.createHtmlOutput(html)
     .setTitle(NOME_PRODUTO)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -109,6 +115,7 @@ function obterPainel_() {
     if (ok && Date.now() - ok < DIAS_SEM_INTERNET * 864e5 && cache) return { html: cache };
     return { titulo: 'Sem conexão com o servidor', msg: 'Não foi possível confirmar a licença. Tente de novo em alguns minutos.' };
   }
+  if (resp.ok) p.setProperty('EXTRAS', JSON.stringify(resp.extras || {}));
   if (!resp.ok) {
     p.setProperty('LIC_STATUS', resp.status || 'Bloqueada');
     return { titulo: 'Licença ' + String(resp.status || 'inválida').toLowerCase(), msg: resp.msg || 'Esta licença não está ativa.' };

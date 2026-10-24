@@ -1,0 +1,182 @@
+<script>
+/* Extras: abas escondidas e abas personalizadas que o vendedor configura para cada cliente.
+   Recebe window.CC_EXTRAS = { ocultas:['cofin',...], abas:[{id,nome,tipo,colunas:[...]}] }.
+   Tipos: tabela, checklist, links, notas. Tudo salvo no banco da planilha (via Ponte). */
+(function () {
+  'use strict';
+  var X = window.CC_EXTRAS || {};
+  var ocultas = Array.isArray(X.ocultas) ? X.ocultas.map(String) : [];
+  var abas = Array.isArray(X.abas) ? X.abas.filter(function (a) { return a && a.id && a.nome; }) : [];
+  if (!ocultas.length && !abas.length) return;
+
+  // Esconde as abas que não fazem parte do pacote do cliente
+  var css = ocultas.map(function (v) { return '#tabs button[data-v="' + v.replace(/[^a-z0-9_-]/gi, '') + '"]'; }).join(',');
+  var st = document.createElement('style');
+  st.textContent = (css ? css + '{display:none!important}' : '') +
+    '.cx-box{display:grid;gap:10px}.cx-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}' +
+    '.cx-bar input{flex:1;min-width:160px}.cx-tbl{overflow-x:auto}.cx-tbl table{width:100%;border-collapse:collapse}' +
+    '.cx-tbl th,.cx-tbl td{border-bottom:1px solid currentColor;border-bottom-color:rgba(127,127,127,.25);padding:4px;text-align:left}' +
+    '.cx-tbl td input{width:100%;min-width:110px;min-height:40px;background:transparent;color:inherit;border:1px solid rgba(127,127,127,.3);padding:6px;font:inherit}' +
+    '.cx-item{display:flex;gap:8px;align-items:center;min-height:44px}.cx-item span{flex:1;min-width:0;overflow-wrap:anywhere}' +
+    '.cx-item.ok span{text-decoration:line-through;opacity:.6}.cx-box button{min-height:44px;cursor:pointer}' +
+    '.cx-box textarea{width:100%;min-height:50vh;font:inherit;background:transparent;color:inherit;border:1px solid rgba(127,127,127,.3);padding:10px}' +
+    '.cx-box input{min-height:44px;background:transparent;color:inherit;border:1px solid rgba(127,127,127,.3);padding:6px 10px;font:inherit}' +
+    '.cx-sub{opacity:.7;font-size:12px}';
+  document.head.appendChild(st);
+
+  function el(tag, o, filhos) {
+    var e = document.createElement(tag); o = o || {};
+    if (o.text != null) e.textContent = o.text;
+    if (o.cls) e.className = o.cls;
+    Object.keys(o.attr || {}).forEach(function (k) { e.setAttribute(k, o.attr[k]); });
+    (filhos || []).forEach(function (f) { if (f) e.appendChild(f); });
+    return e;
+  }
+  function linkSeguro(u) { u = String(u || '').trim(); if (!/^https?:\/\//i.test(u)) u = 'https://' + u; try { var x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (e) { return ''; } }
+
+  var DB = null;
+  function banco() { return DB ? Promise.resolve(DB) : (window.claude ? window.claude.use('db') : Promise.resolve(null)).then(function (d) { DB = d; return d; }); }
+  function salvar(id, dados) {
+    return banco().then(function (d) { if (d) return d.doc('extras/' + id).set({ json: JSON.stringify(dados), em: Date.now() }); })
+      .catch(function () { if (window.ccAviso) window.ccAviso('Não salvou a aba personalizada', id); });
+  }
+  function ouvir(id, cb) {
+    banco().then(function (d) {
+      if (!d) return;
+      d.doc('extras/' + id).onSnapshot(function (s) {
+        var v = s && s.exists ? s.data() : null, o = null;
+        try { o = v && v.json ? JSON.parse(v.json) : null; } catch (e) {}
+        cb(o);
+      }, function () {});
+    });
+  }
+  var esperas = {};
+  function salvarDepois(id, dados) { clearTimeout(esperas[id]); esperas[id] = setTimeout(function () { salvar(id, dados); }, 600); }
+
+  /* ----- Tipos de aba ----- */
+  function tabela(sec, a) {
+    var cols = (a.colunas || []).map(String).filter(Boolean);
+    if (!cols.length) cols = ['Item', 'Situação', 'Observação'];
+    var D = { linhas: [] }, editando = false;
+    var busca = el('input', { attr: { type: 'search', placeholder: 'Buscar em ' + a.nome + '…', 'aria-label': 'Buscar' } });
+    var bAdd = el('button', { text: '+ Nova linha' }), bCsv = el('button', { text: '⬇ Baixar planilha (CSV)' });
+    var info = el('span', { cls: 'cx-sub' });
+    var tb = el('tbody'), tab = el('table', {}, [el('thead', {}, [el('tr', {}, cols.map(function (c) { return el('th', { text: c }); }).concat([el('th')]))]), tb]);
+    sec.appendChild(el('div', { cls: 'cx-box' }, [el('div', { cls: 'cx-bar' }, [busca, bAdd, bCsv, info]), el('div', { cls: 'cx-tbl' }, [tab])]));
+    function desenhar() {
+      var q = busca.value.toLowerCase(); tb.textContent = '';
+      D.linhas.forEach(function (l, i) {
+        if (q && l.join(' ').toLowerCase().indexOf(q) < 0) return;
+        var tds = cols.map(function (c, j) {
+          var inp = el('input', { attr: { 'aria-label': c } }); inp.value = l[j] || '';
+          inp.oninput = function () { l[j] = inp.value; salvarDepois(a.id, D); };
+          inp.onfocus = function () { editando = true; }; inp.onblur = function () { editando = false; };
+          return el('td', {}, [inp]);
+        });
+        var del = el('button', { text: '🗑', attr: { title: 'Apagar linha', 'aria-label': 'Apagar linha' } });
+        del.onclick = function () { if (del.dataset.c) { D.linhas.splice(i, 1); salvar(a.id, D); desenhar(); } else { del.dataset.c = 1; del.textContent = 'Apagar?'; } };
+        tb.appendChild(el('tr', {}, tds.concat([el('td', {}, [del])])));
+      });
+      info.textContent = D.linhas.length + ' linha(s)';
+    }
+    bAdd.onclick = function () { D.linhas.unshift(cols.map(function () { return ''; })); salvar(a.id, D); busca.value = ''; desenhar(); var p = tb.querySelector('input'); if (p) p.focus(); };
+    bCsv.onclick = function () {
+      var esc = function (s) { s = String(s == null ? '' : s); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      var csv = '﻿' + [cols].concat(D.linhas).map(function (l) { return l.map(esc).join(';'); }).join('\n');
+      var blob = new Blob([csv], { type: 'text/csv' });
+      (window.claude ? window.claude.use('downloads') : Promise.resolve(null)).then(function (dl) { if (dl) dl.save({ filename: a.nome + '.csv', data: blob }); });
+    };
+    busca.oninput = desenhar;
+    ouvir(a.id, function (o) { if (editando) return; D = o && Array.isArray(o.linhas) ? o : { linhas: [] }; desenhar(); });
+    desenhar();
+  }
+
+  function checklist(sec, a) {
+    var D = { itens: [] };
+    var novo = el('input', { attr: { placeholder: 'Nova tarefa…', 'aria-label': 'Nova tarefa' } }), bAdd = el('button', { text: '+ Adicionar' });
+    var bLimpar = el('button', { text: 'Limpar concluídas' }), lista = el('div'), info = el('span', { cls: 'cx-sub' });
+    sec.appendChild(el('div', { cls: 'cx-box' }, [el('div', { cls: 'cx-bar' }, [novo, bAdd, bLimpar, info]), lista]));
+    function desenhar() {
+      lista.textContent = '';
+      D.itens.forEach(function (it, i) {
+        var cb = el('input', { attr: { type: 'checkbox', 'aria-label': it.t } }); cb.checked = !!it.ok; cb.style.minHeight = '24px'; cb.style.width = '24px';
+        cb.onchange = function () { it.ok = cb.checked; it.em = Date.now(); salvar(a.id, D); desenhar(); };
+        var del = el('button', { text: '🗑', attr: { 'aria-label': 'Apagar' } }); del.onclick = function () { D.itens.splice(i, 1); salvar(a.id, D); desenhar(); };
+        lista.appendChild(el('div', { cls: 'cx-item' + (it.ok ? ' ok' : '') }, [cb, el('span', { text: it.t }), del]));
+      });
+      var f = D.itens.filter(function (x) { return x.ok; }).length;
+      info.textContent = f + ' de ' + D.itens.length + ' feitas';
+    }
+    function add() { var t = novo.value.trim(); if (!t) return; D.itens.push({ t: t, ok: false, em: Date.now() }); novo.value = ''; salvar(a.id, D); desenhar(); }
+    bAdd.onclick = add; novo.onkeydown = function (e) { if (e.key === 'Enter') add(); };
+    bLimpar.onclick = function () { D.itens = D.itens.filter(function (x) { return !x.ok; }); salvar(a.id, D); desenhar(); };
+    ouvir(a.id, function (o) { D = o && Array.isArray(o.itens) ? o : { itens: [] }; desenhar(); });
+  }
+
+  function links(sec, a) {
+    var D = { links: [] };
+    var nome = el('input', { attr: { placeholder: 'Nome (ex.: Sistema de férias)', 'aria-label': 'Nome do link' } });
+    var url = el('input', { attr: { placeholder: 'Endereço (https://…)', 'aria-label': 'Endereço' } });
+    var bAdd = el('button', { text: '+ Adicionar link' }), lista = el('div');
+    sec.appendChild(el('div', { cls: 'cx-box' }, [el('div', { cls: 'cx-bar' }, [nome, url, bAdd]), lista]));
+    function desenhar() {
+      lista.textContent = '';
+      D.links.forEach(function (l, i) {
+        var a2 = el('a', { text: l.n, attr: { href: l.u, target: '_blank', rel: 'noopener' } });
+        var del = el('button', { text: '🗑', attr: { 'aria-label': 'Apagar' } }); del.onclick = function () { D.links.splice(i, 1); salvar(a.id, D); desenhar(); };
+        lista.appendChild(el('div', { cls: 'cx-item' }, [el('span', {}, [a2, el('div', { cls: 'cx-sub', text: l.u })]), del]));
+      });
+      if (!D.links.length) lista.appendChild(el('p', { cls: 'cx-sub', text: 'Nenhum link ainda. Adicione acima.' }));
+    }
+    bAdd.onclick = function () {
+      var u = linkSeguro(url.value); if (!u) return;
+      D.links.push({ n: nome.value.trim() || u, u: u }); nome.value = ''; url.value = ''; salvar(a.id, D); desenhar();
+    };
+    ouvir(a.id, function (o) { D = o && Array.isArray(o.links) ? { links: o.links.filter(function (l) { return linkSeguro(l.u) === l.u; }) } : { links: [] }; desenhar(); });
+  }
+
+  function notas(sec, a) {
+    var t = el('textarea', { attr: { 'aria-label': a.nome, placeholder: 'Escreva aqui. Salva sozinho.' } }), info = el('span', { cls: 'cx-sub' });
+    sec.appendChild(el('div', { cls: 'cx-box' }, [t, info]));
+    t.oninput = function () { info.textContent = 'Salvando…'; salvarDepois(a.id, { texto: t.value }); setTimeout(function () { info.textContent = 'Salvo'; }, 900); };
+    ouvir(a.id, function (o) { if (document.activeElement !== t) t.value = (o && o.texto) || ''; });
+  }
+
+  var TIPOS = { tabela: tabela, checklist: checklist, links: links, notas: notas };
+
+  function montar() {
+    var nav = document.getElementById('tabs');
+    if (!nav) return;
+    var ref = document.querySelector('section.view');
+    var pai = ref ? ref.parentNode : document.body;
+    abas.forEach(function (a) {
+      var id = 'cx' + String(a.id).replace(/[^a-z0-9]/gi, '');
+      if (document.getElementById('v-' + id)) return;
+      var b = el('button', { text: a.nome, attr: { 'data-v': id, 'data-cx': '1' } });
+      nav.appendChild(b);
+      var sec = el('section', { cls: 'view', attr: { id: 'v-' + id } }, [el('div', { cls: 'panel' }, [el('h2', { text: a.nome })])]);
+      sec.hidden = true;
+      pai.appendChild(sec);
+      (TIPOS[a.tipo] || tabela)(sec.firstChild, { id: id, nome: a.nome, colunas: a.colunas });
+    });
+    // Troca de aba: as personalizadas usam o mesmo esquema do painel (#tabs button[data-v] → section#v-...)
+    nav.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('button[data-v]');
+      if (!b) return;
+      var v = b.getAttribute('data-v');
+      if (!b.hasAttribute('data-cx')) { document.querySelectorAll('section.view[id^="v-cx"]').forEach(function (s) { s.hidden = true; }); return; }
+      nav.querySelectorAll('button[data-v]').forEach(function (x) { x.setAttribute('aria-selected', x === b ? 'true' : 'false'); });
+      document.querySelectorAll('section.view').forEach(function (s) { s.hidden = s.id !== 'v-' + v; });
+      try { localStorage.setItem('ccp4.v', v); } catch (x) {}
+    });
+    // Se a aba aberta estiver escondida, abre a primeira liberada
+    var atual = nav.querySelector('button[aria-selected="true"]');
+    if (atual && ocultas.indexOf(atual.getAttribute('data-v')) >= 0) {
+      var prim = Array.prototype.filter.call(nav.querySelectorAll('button[data-v]'), function (x) { return ocultas.indexOf(x.getAttribute('data-v')) < 0; })[0];
+      if (prim) prim.click();
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(montar, 50); });
+  else setTimeout(montar, 50);
+})();
+</script>

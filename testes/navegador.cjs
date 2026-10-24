@@ -19,6 +19,11 @@ window.__BANCO=BANCO;
 </script>`;
 const i = html.indexOf('>', html.search(/<head[^>]*>/i)) + 1;
 html = html.slice(0, i) + fake + ponte + html.slice(i);
+// abas configuradas pelo vendedor (mesmo jeito que cliente/Codigo.gs injeta)
+const extras = { ocultas: ['cofin', 'belico'], abas: [{ id: 'a1', nome: 'Viaturas', tipo: 'tabela', colunas: ['Placa', 'Modelo'] }, { id: 'a2', nome: 'Tarefas', tipo: 'checklist' }, { id: 'a3', nome: 'Atalhos', tipo: 'links' }, { id: 'a4', nome: 'Recados', tipo: 'notas' }] };
+const bloco = '<script>window.CC_EXTRAS=' + JSON.stringify(extras).replace(/</g, '\\u003c') + ';</' + 'script>' + fs.readFileSync('cliente/Extras.html', 'utf8');
+const fimBody = html.lastIndexOf('</body>');
+html = fimBody >= 0 ? html.slice(0, fimBody) + bloco + html.slice(fimBody) : html + bloco;
 fs.mkdirSync('testes/saida', { recursive: true });
 fs.writeFileSync('testes/saida/teste.html', html);
 (async () => {
@@ -32,6 +37,33 @@ fs.writeFileSync('testes/saida/teste.html', html);
   // grava uma nota pelo painel e confere se chegou no "banco"
   const nota = await p.$('#nota');
   if (nota) { await p.evaluate(() => { const n = document.querySelector('#nota'); n.value = 'teste ponte'; n.dispatchEvent(new Event('input', { bubbles: true })); n.dispatchEvent(new Event('change', { bubbles: true })); }); await p.waitForTimeout(2500); }
+  // fecha o tutorial e a pergunta do dia, como o usuário faria
+  for (let k = 0; k < 3; k++) await p.evaluate(() => document.querySelectorAll('button').forEach(x => { if (/^(Fechar|Pular hoje)$/.test(x.textContent.trim()) && x.offsetParent) x.click(); }));
+  await p.waitForTimeout(300);
+  // abas personalizadas
+  const assert = require('assert');
+  assert.equal(await p.isVisible('#tabs button[data-v="cofin"]'), false, 'COFIN escondida');
+  assert.equal(await p.isVisible('#tabs button[data-v="pend"]'), true, 'Pendências continua');
+  await p.click('#tabs button[data-v="cxa1"]'); await p.waitForTimeout(200);
+  assert.equal(await p.isVisible('#v-cxa1'), true, 'aba Viaturas abre');
+  assert.equal(await p.isVisible('#v-qg'), false, 'QG some ao trocar');
+  await p.click('#v-cxa1 button:has-text("Nova linha")'); await p.fill('#v-cxa1 tbody tr:first-child td:first-child input', 'ABC1D23');
+  await p.waitForTimeout(1200);
+  await p.click('#tabs button[data-v="cxa2"]'); await p.fill('#v-cxa2 input[aria-label="Nova tarefa"]', 'Revisar pneus'); await p.keyboard.press('Enter');
+  await p.click('#v-cxa2 .cx-item input[type=checkbox]');
+  await p.click('#tabs button[data-v="cxa3"]'); await p.fill('#v-cxa3 input[aria-label="Endereço"]', 'javascript:alert(1)'); await p.click('#v-cxa3 button:has-text("Adicionar")');
+  await p.fill('#v-cxa3 input[aria-label="Nome do link"]', 'Google'); await p.fill('#v-cxa3 input[aria-label="Endereço"]', 'google.com'); await p.click('#v-cxa3 button:has-text("Adicionar")');
+  await p.click('#tabs button[data-v="cxa4"]'); await p.fill('#v-cxa4 textarea', 'Reunião sexta'); await p.waitForTimeout(1200);
+  await p.screenshot({ path: 'testes/saida/cliente-aba-personalizada.png' });
+  const B = await p.evaluate(() => window.__BANCO);
+  const j = k => JSON.parse(B['extras/' + k].json);
+  assert.equal(j('cxa1').linhas[0][0], 'ABC1D23', 'tabela salva');
+  assert.deepEqual(j('cxa2').itens.map(x => [x.t, x.ok]), [['Revisar pneus', true]], 'checklist salvo');
+  assert.equal(j('cxa3').links.length, 1, 'link perigoso recusado'); assert.equal(j('cxa3').links[0].u, 'https://google.com/');
+  assert.equal(j('cxa4').texto, 'Reunião sexta', 'anotação salva');
+  await p.click('#tabs button[data-v="pend"]'); await p.waitForTimeout(200);
+  assert.equal(await p.isVisible('#v-cxa4'), false, 'aba personalizada some ao voltar para uma normal');
+  console.log('abas personalizadas ok (esconder, tabela, checklist, links, anotações)');
   const r = await p.evaluate(() => ({ chamadas: [...new Set(window.__chamadas)], banco: Object.keys(window.__BANCO), falha: !!document.getElementById('ccFalha'), titulo: document.title }));
   await p.screenshot({ path: 'testes/saida/painel.png' });
   console.log(JSON.stringify(r, null, 1));

@@ -64,6 +64,7 @@ Antes da primeira venda, peça ao Claude: *"limpe os dados embutidos do Centro d
 2. **Extensões → Apps Script**. Cole [`cliente/Codigo.gs`](cliente/Codigo.gs).
 3. Na linha `var SERVIDOR_URL = '...'`, troque pelo URL do Passo 3 (mantenha as aspas).
 4. **+ → HTML**, nome **Ponte**, cole [`cliente/Ponte.html`](cliente/Ponte.html).
+   Faça de novo: **+ → HTML**, nome **Extras**, cole [`cliente/Extras.html`](cliente/Extras.html).
 5. Engrenagem **Configurações do projeto** → marque **Mostrar arquivo de manifesto "appsscript.json"**. Abra esse arquivo e cole [`cliente/appsscript.json`](cliente/appsscript.json).
 6. Salve. Na planilha, clique em **Compartilhar → Qualquer pessoa com o link → Leitor**.
 7. Copie o link da planilha e troque o final `/edit...` por **`/copy`**. Exemplo:
@@ -74,13 +75,21 @@ Pronto! Está tudo no ar.
 
 ---
 
-## No dia a dia
+## No dia a dia — 🔐 Licenças → 📊 Abrir painel de vendas
+
+| Aba | Para quê |
+|---|---|
+| 📊 **Resumo** | Quanto entrou no mês e no total, gráfico dos últimos 6 meses, quem está atrasado (com botão **Cobrar no WhatsApp**), quem parou de usar. |
+| ➕ **Vender** | Nome + WhatsApp + plano → **Criar licença**. Sai a mensagem pronta e o botão **WhatsApp ➜ enviar**. |
+| 👥 **Clientes** | Buscar, filtrar atrasados, **⛔ Bloquear / ✅ Liberar**, **✏ Editar** (plano, valor, prazo, nº de instalações). |
+| 💰 **Pagamentos** | Registrar pagamento (renova o prazo e reativa sozinho), histórico, total a receber. |
+| 🏷 **Planos e preços** | Criar planos (Mensal, Anual, Vitalício…) e mudar valores. |
+| 🧩 **Abas do cliente** | Esconder abas que o cliente não comprou e **criar abas novas**: Tabela (com as colunas que quiser), Checklist, Links ou Anotações. Vale para um cliente ou para todos. |
+| 🔗 **Links e ajustes** | Link para mandar ao cliente, endereço do servidor, Pix, WhatsApp e nome do produto. |
 
 | Quero… | Faço… |
 |---|---|
-| **Vender** | 🔐 Licenças → **📊 Painel de acompanhamento** → digite o nome → **➕ Nova licença**. Copie a mensagem pronta e mande no WhatsApp. |
-| **Ver quem está usando** | 📊 Painel de acompanhamento (ou as abas *Clientes* e *Instalações*). |
-| **Bloquear quem não pagou** | No painel, botão **⛔ Bloquear** (ou mude o Status para *Bloqueada* na aba Clientes). |
+| **Bloquear quem não pagou** | Aba Clientes, botão **⛔ Bloquear** (ou mude o Status para *Bloqueada* na aba Clientes da planilha). |
 | **Liberar de novo** | Botão **✅ Liberar**. |
 | **Cliente trocou de conta/planilha** | Aba *Instalações* → selecione a linha → 🔐 Licenças → **🧹 Remover instalação**. Ele ativa de novo. |
 | **Permitir 2 planilhas para um cliente** | Aba *Clientes*, coluna **Máx. instalações** → 2. |
@@ -103,4 +112,8 @@ ele cola o ID das planilhas dele na coluna C. Veja [docs/GUIA-CLIENTE.md](docs/G
 - `servidor/Licencas.gs` — chaves, instalações, bloqueio, validade e entrega do painel só para licença ativa.
 - `ferramentas/preparar-painel.mjs` — pega o HTML exportado do Claude e gera `dist/painel.html`.
   `node ferramentas/preparar-painel.mjs painel-original.html`
-- Testes: `node testes/logica.cjs` (licenças e banco) e `node testes/navegador.cjs` (abre o painel com a ponte no Chromium).
+- `cliente/Extras.html` — abas escondidas e abas personalizadas (tabela, checklist, links, anotações), salvas no banco da planilha.
+- Testes: `./testes/rodar-tudo.sh`
+  - `testes/logica.cjs` — licenças, limite de instalações, bloqueio, validade, planos, pagamentos/renovação, abas, banco em pedaços.
+  - `testes/painel-vendas.cjs` — abre o painel de vendas no Chromium e clica em tudo (vender, WhatsApp, pagamento, preço, abas, bloquear, celular) com o código real do servidor.
+  - `testes/navegador.cjs` — abre o Centro de Comando com a ponte e testa as abas personalizadas.
