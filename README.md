@@ -86,6 +86,8 @@ Pronto! Está tudo no ar.
 | 💰 **Pagamentos** | Registrar pagamento (renova o prazo e reativa sozinho), histórico, total a receber. |
 | 🏷 **Planos e preços** | Criar planos (Mensal, Anual, Vitalício…) e mudar valores. |
 | 🧩 **Abas do cliente** | Esconder abas que o cliente não comprou e **criar abas novas**: Tabela (com as colunas que quiser), Checklist, Links ou Anotações. Vale para um cliente ou para todos. |
+| 🧑‍💼 **Gestores** (só mestre) | Criar um gestor/responsável com as permissões que você marcar. Ele ganha um link próprio. Bloquear, liberar, trocar o link. |
+| 📜 **Atividade** | Tudo o que foi feito, por quem e quando (você e cada gestor). Tentativas sem permissão aparecem em vermelho. |
 | 🔗 **Links e ajustes** | Link para mandar ao cliente, endereço do servidor, Pix, WhatsApp e nome do produto. |
 
 | Quero… | Faço… |
@@ -96,6 +98,18 @@ Pronto! Está tudo no ar.
 | **Permitir 2 planilhas para um cliente** | Aba *Clientes*, coluna **Máx. instalações** → 2. |
 | **Licença com prazo** | Coluna **Validade** → coloque a data. Depois dela, trava sozinha. |
 | **Atualizar o painel de todos** | Troque o conteúdo do `painel.html` no Drive (Gerenciar versões → Enviar nova versão) → 🔐 Licenças → **🚀 Publicar nova versão**. |
+
+## Gestores (painel do responsável)
+
+Você é o **mestre**. No painel de vendas, aba **🧑‍💼 Gestores**, crie um gestor e marque o que ele pode fazer:
+ver clientes, vender, registrar pagamentos, bloquear/liberar, editar, mudar preços, montar abas, ver avisos.
+Ele recebe um **link próprio** (botão "Mandar link no WhatsApp") e abre no celular ou computador, sem precisar da sua planilha.
+
+- Ele só vê os clientes que **ele** vendeu (a não ser que você marque "Ver clientes de todos").
+- Ele **nunca** vê os gestores, os ajustes, o endereço do servidor, nem consegue bloquear você.
+- Tudo o que ele faz aparece na aba **📜 Atividade**.
+- **⛔ Bloquear gestor** corta o acesso na hora. **🔄 Trocar link** invalida o link antigo.
+- Para o link funcionar, o servidor precisa estar implantado (Passo 3). Se você mudar o código, faça **Implantar → Gerenciar implantações → Editar → Nova versão**.
 
 ## Proteção contra cópia
 

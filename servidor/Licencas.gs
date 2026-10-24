@@ -15,15 +15,19 @@ var ABA_PLANOS = 'Planos';
 var ABA_PAG = 'Pagamentos';
 var ABA_ABAS = 'Abas';
 var ABA_AVISOS = 'Avisos';
+var ABA_GEST = 'Gestores';
+var CAB_GEST = ['ID', 'Nome', 'Contato', 'Status', 'Permissões', 'Código do link (não compartilhe)', 'Criado em', 'Último acesso'];
+var ABA_ATIV = 'Atividade';
+var CAB_ATIV = ['Quando', 'Quem', 'Ação', 'Detalhe'];
 var CAB_AVISOS = ['Quando', 'Gravidade', 'Tipo', 'Chave', 'Cliente', 'Detalhe', 'Visto'];
 var CAB_ABAS = ['Chave (ou TODOS)', 'Abas escondidas', 'Abas personalizadas (não editar à mão)'];
 
 var COL = { // colunas da aba Clientes (1 = A)
   chave: 1, nome: 2, contato: 3, status: 4, maxInst: 5, validade: 6,
-  criada: 7, ativada: 8, ultimo: 9, acessos: 10, obs: 11, plano: 12, valor: 13
+  criada: 7, ativada: 8, ultimo: 9, acessos: 10, obs: 11, plano: 12, valor: 13, vendedor: 14
 };
 var CAB_CLIENTES = ['Chave', 'Nome do cliente', 'Contato (WhatsApp/e-mail)', 'Status', 'Máx. instalações',
-  'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações', 'Plano', 'Valor (R$)'];
+  'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações', 'Plano', 'Valor (R$)', 'Vendido por'];
 var CAB_PLANOS = ['Plano', 'Valor (R$)', 'Instalações', 'Dias de acesso (vazio = para sempre)', 'Descrição'];
 var CAB_PAG = ['Data', 'Chave', 'Cliente', 'Valor (R$)', 'Forma', 'Referente a', 'Observação'];
 var CAB_INST = ['Chave', 'Cliente', 'Conta Google', 'Planilha do cliente', 'ID da planilha', 'Primeiro acesso', 'Último acesso', 'Aberturas', 'Versão', 'Pessoas que usaram'];
@@ -53,6 +57,8 @@ function configurar() {
   aba_(ABA_PAG, CAB_PAG);
   aba_(ABA_ABAS, CAB_ABAS);
   aba_(ABA_AVISOS, CAB_AVISOS);
+  aba_(ABA_GEST, CAB_GEST);
+  aba_(ABA_ATIV, CAB_ATIV);
   var pl = aba_(ABA_PLANOS, CAB_PLANOS);
   if (pl.getLastRow() < 2) {
     pl.appendRow(['Vitalício', 197, 1, '', 'Paga uma vez e usa para sempre']);
@@ -86,8 +92,8 @@ function configurar() {
   cl.setConditionalFormatRules(cond);
 
   var s = ss.getSheets();
-  [ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
-  s.forEach(function (x) { if ([ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
+  [ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_GEST, ABA_ATIV, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
+  s.forEach(function (x) { if ([ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_GEST, ABA_ATIV, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
   ss.setActiveSheet(cfg);
   SpreadsheetApp.getUi().alert('Configurado ✅', 'Agora preencha na aba "Config" o ID do arquivo do painel e o link de cópia do modelo. Depois siga o guia.', SpreadsheetApp.getUi().ButtonSet.OK);
 }
@@ -162,6 +168,7 @@ function criarLicenca(nome, contato, opc) {
       if (plano.dias) l[COL.validade - 1] = new Date(Date.now() + plano.dias * 864e5);
     }
     l[COL.valor - 1] = valor;
+    l[COL.vendedor - 1] = opc.vendedor || 'Mestre';
     sh.appendRow(l);
     if (opc.pago && valor) registrarPagamento_(chave, nome, valor, opc.forma || 'Pix', plano ? plano.nome : 'Compra');
   });
@@ -214,17 +221,18 @@ function publicarVersao() {
 
 /* ---------- Painel do dono ---------- */
 function abrirPainelDono() {
-  var t = HtmlService.createTemplateFromFile('PainelDono');
-  SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(1200).setHeight(800), 'Painel de vendas');
+  var h = HtmlService.createHtmlOutputFromFile('PainelDono').setWidth(1200).setHeight(800);
+  SpreadsheetApp.getUi().showModalDialog(h, 'Painel de vendas (mestre)');
 }
 
-function dadosPainelDono() {
+function dadosPainelDono_(quem) {
+  quem = quem || { mestre: true, id: 'Mestre', nome: 'Mestre', perms: PERMS.map(function (x) { return x[0]; }) };
   var ss = ss_();
   var cl = ss.getSheetByName(ABA_CLIENTES), ins = ss.getSheetByName(ABA_INST);
   var clientes = cl.getLastRow() > 1 ? cl.getRange(2, 1, cl.getLastRow() - 1, CAB_CLIENTES.length).getValues() : [];
   var insts = ins.getLastRow() > 1 ? ins.getRange(2, 1, ins.getLastRow() - 1, CAB_INST.length).getValues() : [];
   var data = function (d) { return d instanceof Date ? d.toISOString() : ''; };
-  return JSON.stringify({
+  var D = {
     versao: cfg_('Versão do painel'),
     link: cfg_('Link de cópia do modelo'),
     produto: cfg_('Nome do produto') || 'Centro de Comando',
@@ -252,16 +260,17 @@ function dadosPainelDono() {
         linha: i + 2, chave: l[COL.chave - 1], nome: l[COL.nome - 1], contato: l[COL.contato - 1], status: l[COL.status - 1],
         max: l[COL.maxInst - 1], validade: data(l[COL.validade - 1]), criada: data(l[COL.criada - 1]),
         ultimo: data(l[COL.ultimo - 1]), acessos: l[COL.acessos - 1],
-        plano: l[COL.plano - 1] || '', valor: Number(l[COL.valor - 1]) || 0, obs: l[COL.obs - 1] || ''
+        plano: l[COL.plano - 1] || '', valor: Number(l[COL.valor - 1]) || 0, obs: l[COL.obs - 1] || '', vendedor: l[COL.vendedor - 1] || 'Mestre'
       };
     }),
     instalacoes: insts.filter(function (l) { return l[0]; }).map(function (l) {
       return { chave: l[0], cliente: l[1], email: l[2], planilha: l[3], id: l[4], primeiro: data(l[5]), ultimo: data(l[6]), aberturas: l[7], versao: l[8] };
     })
-  });
+  };
+  return JSON.stringify(filtrarDados_(D, quem));
 }
 
-function painelMudarStatus(chave, status) {
+function painelMudarStatus_(chave, status) {
   if (['Ativa', 'Bloqueada'].indexOf(status) < 0) throw new Error('Status inválido');
   var sh = ss_().getSheetByName(ABA_CLIENTES);
   var r = acharCliente_(sh, chave);
@@ -270,8 +279,9 @@ function painelMudarStatus(chave, status) {
   return true;
 }
 
-function painelNovaLicenca(nome, contato, opcJson) {
+function painelNovaLicenca_(nome, contato, opcJson, vendedor) {
   var opc = opcJson ? JSON.parse(opcJson) : {};
+  opc.vendedor = vendedor || 'Mestre';
   return JSON.stringify(criarLicenca(String(nome).trim(), String(contato || '').trim(), opc));
 }
 
@@ -280,7 +290,7 @@ function registrarPagamento_(chave, nome, valor, forma, ref, obs) {
   aba_(ABA_PAG, CAB_PAG).appendRow([new Date(), chave, nome, Number(valor) || 0, forma || '', ref || '', obs || '']);
 }
 /* Registra um pagamento. Se o plano tem prazo, empurra a validade e reativa a licença. */
-function painelPagamento(json) {
+function painelPagamento_(json) {
   var o = JSON.parse(json);
   return comTrava_(function () {
     var sh = ss_().getSheetByName(ABA_CLIENTES), c = acharCliente_(sh, String(o.chave).toUpperCase());
@@ -297,7 +307,7 @@ function painelPagamento(json) {
     return true;
   });
 }
-function painelApagarPagamento(linha) {
+function painelApagarPagamento_(linha) {
   var sh = ss_().getSheetByName(ABA_PAG);
   linha = Number(linha);
   if (linha >= 2 && linha <= sh.getLastRow()) sh.deleteRow(linha);
@@ -305,7 +315,7 @@ function painelApagarPagamento(linha) {
 }
 
 /* ---------- Planos e preços ---------- */
-function painelSalvarPlanos(json) {
+function painelSalvarPlanos_(json) {
   var lista = JSON.parse(json).filter(function (p) { return p.nome && String(p.nome).trim(); });
   var sh = aba_(ABA_PLANOS, CAB_PLANOS);
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, CAB_PLANOS.length).clearContent();
@@ -314,7 +324,7 @@ function painelSalvarPlanos(json) {
   }));
   return true;
 }
-function painelEditarCliente(json) {
+function painelEditarCliente_(json) {
   var o = JSON.parse(json);
   var sh = ss_().getSheetByName(ABA_CLIENTES), c = acharCliente_(sh, String(o.chave).toUpperCase());
   if (!c) throw new Error('Cliente não encontrado');
@@ -325,12 +335,12 @@ function painelEditarCliente(json) {
   if (o.obs != null) sh.getRange(c.linha, COL.obs).setValue(o.obs);
   return true;
 }
-function painelSalvarConfig(json) {
+function painelSalvarConfig_(json) {
   var o = JSON.parse(json);
   ['Link de cópia do modelo', 'Nome do produto', 'Chave Pix', 'Seu WhatsApp'].forEach(function (k) { if (o[k] != null) cfgSet_(k, String(o[k]).trim()); });
   return true;
 }
-function painelMensagem(chave) {
+function painelMensagem_(chave) {
   var sh = ss_().getSheetByName(ABA_CLIENTES);
   var r = acharCliente_(sh, chave);
   return r ? mensagemVenda_(r.valores[COL.nome - 1], chave) : '';
@@ -349,6 +359,7 @@ function doPost(e) {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.f) { try { farol_(p); } catch (x) {} return ContentService.createTextOutput('ok'); }
+  if (p.g) return paginaGestor_(String(p.g));
   return ContentService.createTextOutput('Servidor de licenças no ar ✅');
 }
 
@@ -511,12 +522,12 @@ function limparAba_(a) {
   };
 }
 
-function painelAbas(chave) {
+function painelAbas_(chave) {
   var t = lerAbas_(), k = String(chave || 'TODOS').toUpperCase();
   return JSON.stringify(t[k] || { ocultas: [], abas: [], novo: true });
 }
 
-function painelSalvarAbas(chave, json) {
+function painelSalvarAbas_(chave, json) {
   var k = String(chave || 'TODOS').toUpperCase(), o = JSON.parse(json);
   var ocultas = (o.ocultas || []).map(function (x) { return String(x).replace(/[^a-z0-9_-]/gi, ''); }).filter(Boolean);
   var abas = (o.abas || []).map(limparAba_).filter(function (a) { return a.nome; });
@@ -584,9 +595,201 @@ function farol_(p) {
     'Alguém abriu uma cópia do painel fora da planilha (endereço: ' + (origem || 'arquivo no computador') + '). A cópia saiu da licença deste cliente.');
 }
 
-function painelMarcarAvisos(linhasJson) {
+function painelMarcarAvisos_(linhasJson) {
   var linhas = JSON.parse(linhasJson), sh = ss_().getSheetByName(ABA_AVISOS);
   if (!sh) return true;
   linhas.forEach(function (l) { l = Number(l); if (l >= 2 && l <= sh.getLastRow()) sh.getRange(l, 7).setValue('Sim'); });
   return true;
+}
+
+/* =====================================================================
+   GESTORES — o "responsável" tem o painel dele (um link), com as permissões
+   que o mestre liberar. O mestre vê tudo, bloqueia o gestor e tira permissões.
+   O gestor nunca mexe em gestores, ajustes, servidor nem no mestre.
+   ===================================================================== */
+var PERMS = [
+  ['ver', 'Ver clientes e resumo'], ['todos', 'Ver clientes de todos (não só os que ele vendeu)'],
+  ['vender', 'Vender (criar licenças)'], ['pagamentos', 'Registrar pagamentos'], ['bloquear', 'Bloquear e liberar clientes'],
+  ['editar', 'Editar cliente (valor, prazo, instalações)'], ['planos', 'Mudar planos e preços'],
+  ['abas', 'Montar abas dos clientes'], ['avisos', 'Ver avisos de segurança']
+];
+
+/* Qual permissão cada ação exige. "mestre" = só você. */
+var API = {
+  dadosPainelDono: ['ver', function (q) { return dadosPainelDono_(q); }],
+  painelNovaLicenca: ['vender', function (q, a) { return painelNovaLicenca_(a[0], a[1], a[2], q.mestre ? 'Mestre' : q.id); }],
+  painelMensagem: ['vender', function (q, a) { dono_(q, a[0]); return painelMensagem_(a[0]); }],
+  painelMudarStatus: ['bloquear', function (q, a) { dono_(q, a[0]); return painelMudarStatus_(a[0], a[1]); }],
+  painelEditarCliente: ['editar', function (q, a) { dono_(q, JSON.parse(a[0]).chave); return painelEditarCliente_(a[0]); }],
+  painelPagamento: ['pagamentos', function (q, a) { dono_(q, JSON.parse(a[0]).chave); return painelPagamento_(a[0]); }],
+  painelApagarPagamento: ['mestre', function (q, a) { return painelApagarPagamento_(a[0]); }],
+  painelSalvarPlanos: ['planos', function (q, a) { return painelSalvarPlanos_(a[0]); }],
+  painelAbas: ['abas', function (q, a) { if (a[0] !== 'TODOS') dono_(q, a[0]); else if (!q.mestre) throw new Error('Só o mestre mexe nas abas de todos.'); return painelAbas_(a[0]); }],
+  painelSalvarAbas: ['abas', function (q, a) { if (a[0] !== 'TODOS') dono_(q, a[0]); else if (!q.mestre) throw new Error('Só o mestre mexe nas abas de todos.'); return painelSalvarAbas_(a[0], a[1]); }],
+  painelMarcarAvisos: ['avisos', function (q, a) { return painelMarcarAvisos_(a[0]); }],
+  painelSalvarConfig: ['mestre', function (q, a) { return painelSalvarConfig_(a[0]); }],
+  gestorCriar: ['mestre', function (q, a) { return gestorCriar_(a[0], a[1], a[2]); }],
+  gestorSalvar: ['mestre', function (q, a) { return gestorSalvar_(a[0], a[1], a[2]); }],
+  gestorNovoLink: ['mestre', function (q, a) { return gestorNovoLink_(a[0]); }]
+};
+
+/* Única porta de entrada da página. token vazio = mestre (só funciona para o dono da planilha). */
+function api(token, nome, argsJson) {
+  var quem = quem_(token);
+  var regra = API[nome];
+  if (!regra) throw new Error('Ação desconhecida.');
+  if (regra[0] === 'mestre' ? !quem.mestre : (!quem.mestre && quem.perms.indexOf(regra[0]) < 0)) {
+    atividade_(quem, 'NEGADO: ' + nome, '');
+    throw new Error('Você não tem permissão para isso. Fale com o administrador.');
+  }
+  var args = argsJson ? JSON.parse(argsJson) : [];
+  var r = regra[1](quem, args);
+  if (nome !== 'dadosPainelDono' && nome !== 'painelAbas' && nome !== 'painelMensagem') atividade_(quem, nome, resumoArgs_(nome, args));
+  return r;
+}
+
+function quem_(token) {
+  token = String(token || '');
+  if (!token) {
+    var ativo = '', dono = '';
+    try { ativo = Session.getActiveUser().getEmail(); dono = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    if (ativo && ativo === dono) return { mestre: true, id: 'Mestre', nome: 'Mestre', perms: PERMS.map(function (x) { return x[0]; }) };
+    throw new Error('Acesso negado.');
+  }
+  var g = acharGestor_(token, 6);
+  if (!g) throw new Error('Link inválido. Peça um novo ao administrador.');
+  if (g.status !== 'Ativo') throw new Error('Seu acesso de gestor está bloqueado. Fale com o administrador.');
+  var c = CacheService.getScriptCache(), k = 'gacc:' + g.id;
+  if (!c.get(k)) { c.put(k, '1', 300); g.sh.getRange(g.linha, 8).setValue(new Date()); }
+  return { mestre: false, id: g.id, nome: g.nome, perms: g.perms };
+}
+
+function acharGestor_(valor, col) {
+  var sh = ss_().getSheetByName(ABA_GEST);
+  if (!sh || sh.getLastRow() < 2 || !valor) return null;
+  var v = sh.getRange(2, 1, sh.getLastRow() - 1, CAB_GEST.length).getValues();
+  for (var i = 0; i < v.length; i++) if (String(v[i][col - 1]) === String(valor)) {
+    return { sh: sh, linha: i + 2, id: String(v[i][0]), nome: String(v[i][1]), contato: String(v[i][2]), status: String(v[i][3]),
+      perms: String(v[i][4] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), token: String(v[i][5]) };
+  }
+  return null;
+}
+
+/* Gestor só mexe nos clientes que ele vendeu, a não ser que tenha "todos". */
+function dono_(q, chave) {
+  if (q.mestre || q.perms.indexOf('todos') >= 0) return;
+  var c = acharCliente_(ss_().getSheetByName(ABA_CLIENTES), String(chave || '').toUpperCase());
+  if (!c || String(c.valores[COL.vendedor - 1]) !== q.id) throw new Error('Este cliente não é seu.');
+}
+
+function filtrarDados_(D, q) {
+  D.eu = { mestre: !!q.mestre, nome: q.nome, id: q.id, perms: q.perms };
+  D.permsLista = PERMS;
+  if (q.mestre) {
+    D.gestores = listarGestores_();
+    D.atividade = listarAtividade_('');
+    return D;
+  }
+  var ver = function (p) { return q.perms.indexOf(p) >= 0; };
+  if (!ver('todos')) {
+    D.clientes = D.clientes.filter(function (c) { return c.vendedor === q.id; });
+    var minhas = {}; D.clientes.forEach(function (c) { minhas[c.chave] = 1; });
+    D.instalacoes = D.instalacoes.filter(function (i) { return minhas[i.chave]; });
+    D.pagamentos = D.pagamentos.filter(function (p) { return minhas[p.chave]; });
+    D.avisos = D.avisos.filter(function (a) { return minhas[a.chave]; });
+  }
+  if (!ver('avisos')) D.avisos = [];
+  if (!ver('pagamentos')) D.pagamentos = D.pagamentos.map(function (p) { return { linha: 0, data: p.data, chave: p.chave, cliente: p.cliente, valor: p.valor, forma: '', ref: '', obs: '' }; });
+  D.servidor = ''; D.planilha = ''; D.gestores = [];
+  D.atividade = listarAtividade_(q.id);
+  return D;
+}
+
+function novoToken_() {
+  return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Utilities.getUuid() + Date.now())).replace(/=+$/, '');
+}
+function linkGestor_(token) { return urlServidor_() ? urlServidor_() + '?g=' + encodeURIComponent(token) : ''; }
+
+function listarGestores_() {
+  var sh = ss_().getSheetByName(ABA_GEST);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, CAB_GEST.length).getValues().filter(function (l) { return l[0]; }).map(function (l) {
+    return { id: String(l[0]), nome: l[1], contato: l[2], status: l[3], perms: String(l[4] || '').split(',').filter(Boolean),
+      link: linkGestor_(l[5]), criado: l[6] instanceof Date ? l[6].toISOString() : '', ultimo: l[7] instanceof Date ? l[7].toISOString() : '' };
+  });
+}
+
+function limparPerms_(lista) {
+  var ok = PERMS.map(function (x) { return x[0]; });
+  return (lista || []).filter(function (p) { return ok.indexOf(p) >= 0; });
+}
+
+function gestorCriar_(nome, contato, permsJson) {
+  nome = String(nome || '').trim();
+  if (!nome) throw new Error('Digite o nome do gestor.');
+  var perms = limparPerms_(JSON.parse(permsJson || '["ver","vender","pagamentos"]'));
+  var id = 'G' + Utilities.getUuid().replace(/-/g, '').slice(0, 6).toUpperCase(), token = novoToken_();
+  comTrava_(function () { aba_(ABA_GEST, CAB_GEST).appendRow([id, nome, String(contato || ''), 'Ativo', perms.join(','), token, new Date(), '']); });
+  return JSON.stringify({ id: id, link: linkGestor_(token) });
+}
+
+function gestorSalvar_(id, status, permsJson) {
+  var g = acharGestor_(id, 1);
+  if (!g) throw new Error('Gestor não encontrado.');
+  if (status) {
+    if (['Ativo', 'Bloqueado'].indexOf(status) < 0) throw new Error('Status inválido');
+    g.sh.getRange(g.linha, 4).setValue(status);
+  }
+  if (permsJson) g.sh.getRange(g.linha, 5).setValue(limparPerms_(JSON.parse(permsJson)).join(','));
+  return true;
+}
+
+/* Troca o link do gestor (o antigo para de funcionar na hora). */
+function gestorNovoLink_(id) {
+  var g = acharGestor_(id, 1);
+  if (!g) throw new Error('Gestor não encontrado.');
+  var t = novoToken_();
+  g.sh.getRange(g.linha, 6).setValue(t);
+  return JSON.stringify({ link: linkGestor_(t) });
+}
+
+function atividade_(q, acao, detalhe) {
+  try {
+    var sh = aba_(ABA_ATIV, CAB_ATIV);
+    sh.appendRow([new Date(), q.mestre ? 'Mestre' : q.nome + ' (' + q.id + ')', acao, String(detalhe || '').slice(0, 300)]);
+    if (sh.getLastRow() > 5000) sh.deleteRows(2, 1000);
+  } catch (e) {}
+}
+function listarAtividade_(id) {
+  var sh = ss_().getSheetByName(ABA_ATIV);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var ini = Math.max(2, sh.getLastRow() - 399);
+  return sh.getRange(ini, 1, sh.getLastRow() - ini + 1, 4).getValues().map(function (l) {
+    return { quando: l[0] instanceof Date ? l[0].toISOString() : '', quem: String(l[1]), acao: String(l[2]), detalhe: String(l[3]) };
+  }).filter(function (a) { return !id || a.quem.indexOf('(' + id + ')') >= 0; });
+}
+var NOMES_ACAO = { painelNovaLicenca: 'Vendeu', painelMudarStatus: 'Mudou status', painelEditarCliente: 'Editou cliente', painelPagamento: 'Registrou pagamento',
+  painelApagarPagamento: 'Apagou pagamento', painelSalvarPlanos: 'Mudou planos/preços', painelSalvarAbas: 'Mudou abas', painelMarcarAvisos: 'Marcou avisos',
+  painelSalvarConfig: 'Mudou ajustes', gestorCriar: 'Criou gestor', gestorSalvar: 'Mudou gestor', gestorNovoLink: 'Trocou link do gestor' };
+function resumoArgs_(nome, a) {
+  try {
+    var o = /^\s*[{\[]/.test(String(a[0])) ? JSON.parse(a[0]) : null;
+    var txt = (NOMES_ACAO[nome] || nome) + ': ';
+    if (nome === 'painelNovaLicenca') return txt + a[0];
+    if (nome === 'painelMudarStatus') return txt + a[0] + ' → ' + a[1];
+    if (nome === 'gestorSalvar') return txt + a[0] + (a[1] ? ' → ' + a[1] : '') + (a[2] ? ' (permissões)' : '');
+    if (o && o.chave) return txt + o.chave + (o.valor ? ' · R$ ' + o.valor : '');
+    return txt + String(a[0] || '').slice(0, 60);
+  } catch (e) { return nome; }
+}
+
+function paginaGestor_(token) {
+  var g = acharGestor_(token, 6);
+  if (!g || g.status !== 'Ativo') {
+    return HtmlService.createHtmlOutput('<div style="font:16px system-ui;max-width:480px;margin:40px auto;padding:20px;border:2px solid #e0553f;border-radius:12px"><h2>Acesso indisponível</h2><p>' +
+      (g ? 'Seu acesso de gestor está bloqueado.' : 'Este link não vale mais.') + ' Fale com o administrador.</p></div>').setTitle('Painel do gestor');
+  }
+  var html = HtmlService.createHtmlOutputFromFile('PainelDono').getContent()
+    .replace('<head>', '<head><script>window.CC_TOKEN=' + JSON.stringify(token) + ';</' + 'script>');
+  return HtmlService.createHtmlOutput(html).setTitle('Painel do gestor · ' + g.nome).addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }

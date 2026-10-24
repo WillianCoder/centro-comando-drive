@@ -14,41 +14,41 @@ assert.ok(r.ok, 'ativa'); assert.equal(r.versao, '3');
 r = S.atender_({ acao: 'baixar', chave, planilhaId: 'P1' }); assert.ok(r.html.includes('<head>')); assert.equal(r.ids.length, 1);
 r = S.atender_({ acao: 'checar', chave, planilhaId: 'P2' }); assert.equal(r.ok, false); assert.equal(r.status, 'Limite');
 assert.equal(ss.abas['Instalações']._d.length, 2); // cabeçalho + 1
-S.painelMudarStatus(chave, 'Bloqueada');
+S.painelMudarStatus_(chave, 'Bloqueada');
 r = S.atender_({ acao: 'checar', chave, planilhaId: 'P1' }); assert.equal(r.ok, false); assert.equal(r.status, 'Bloqueada');
-S.painelMudarStatus(chave, 'Ativa');
+S.painelMudarStatus_(chave, 'Ativa');
 assert.ok(S.atender_({ acao: 'checar', chave, planilhaId: 'P1' }).ok);
 assert.equal(S.atender_({ acao: 'checar', chave: 'CC-AAAA-BBBB-CCCC', planilhaId: 'P1' }).ok, false);
-const dono = JSON.parse(S.dadosPainelDono()); assert.equal(dono.clientes.length, 1); assert.equal(dono.instalacoes[0].aberturas, 3);
+const dono = JSON.parse(S.dadosPainelDono_()); assert.equal(dono.clientes.length, 1); assert.equal(dono.instalacoes[0].aberturas, 3);
 // planos, pagamentos e renovação
 S.aba_('Planos', S.CAB_PLANOS); S.aba_('Pagamentos', S.CAB_PAG); S.aba_('Abas', S.CAB_ABAS);
-S.painelSalvarPlanos(JSON.stringify([{ nome: 'Mensal', valor: 30, inst: 1, dias: 30 }, { nome: 'Vitalício', valor: 200, inst: 2, dias: '' }]));
+S.painelSalvarPlanos_(JSON.stringify([{ nome: 'Mensal', valor: 30, inst: 1, dias: 30 }, { nome: 'Vitalício', valor: 200, inst: 2, dias: '' }]));
 assert.equal(S.planos_().length, 2);
-const m = JSON.parse(S.painelNovaLicenca('Mensalista', '11988887777', JSON.stringify({ plano: 'Mensal', pago: true, forma: 'Pix' })));
-let dd = JSON.parse(S.dadosPainelDono()), cm = dd.clientes.find(c => c.chave === m.chave);
+const m = JSON.parse(S.painelNovaLicenca_('Mensalista', '11988887777', JSON.stringify({ plano: 'Mensal', pago: true, forma: 'Pix' })));
+let dd = JSON.parse(S.dadosPainelDono_()), cm = dd.clientes.find(c => c.chave === m.chave);
 assert.equal(cm.valor, 30); assert.equal(cm.plano, 'Mensal'); assert.ok(cm.validade);
 assert.equal(dd.pagamentos.length, 1); assert.equal(dd.pagamentos[0].valor, 30);
 const val1 = new Date(cm.validade).getTime();
-S.painelPagamento(JSON.stringify({ chave: m.chave, forma: 'Pix' }));
-dd = JSON.parse(S.dadosPainelDono()); cm = dd.clientes.find(c => c.chave === m.chave);
+S.painelPagamento_(JSON.stringify({ chave: m.chave, forma: 'Pix' }));
+dd = JSON.parse(S.dadosPainelDono_()); cm = dd.clientes.find(c => c.chave === m.chave);
 assert.ok(new Date(cm.validade).getTime() - val1 > 29 * 864e5, 'pagamento renova 30 dias');
 assert.equal(dd.pagamentos.length, 2);
 // licença vencida trava e pagamento destrava
-S.painelEditarCliente(JSON.stringify({ chave: m.chave, validade: '2020-01-01' }));
+S.painelEditarCliente_(JSON.stringify({ chave: m.chave, validade: '2020-01-01' }));
 assert.equal(S.atender_({ acao: 'checar', chave: m.chave, planilhaId: 'M1' }).status, 'Vencida');
-S.painelPagamento(JSON.stringify({ chave: m.chave }));
+S.painelPagamento_(JSON.stringify({ chave: m.chave }));
 assert.ok(S.atender_({ acao: 'checar', chave: m.chave, planilhaId: 'M1' }).ok, 'pagamento reativa');
-S.painelApagarPagamento(2); assert.equal(JSON.parse(S.dadosPainelDono()).pagamentos.length, 2);
+S.painelApagarPagamento_(2); assert.equal(JSON.parse(S.dadosPainelDono_()).pagamentos.length, 2);
 // abas
-S.painelSalvarAbas('TODOS', JSON.stringify({ ocultas: ['cofin', 'belico'], abas: [{ nome: 'Viaturas', tipo: 'tabela', colunas: 'Placa, Modelo' }] }));
-S.painelSalvarAbas(m.chave, JSON.stringify({ ocultas: ['sei'], abas: [{ nome: 'Tarefas', tipo: 'checklist' }, { nome: '<b>x</b>', tipo: 'hack' }] }));
+S.painelSalvarAbas_('TODOS', JSON.stringify({ ocultas: ['cofin', 'belico'], abas: [{ nome: 'Viaturas', tipo: 'tabela', colunas: 'Placa, Modelo' }] }));
+S.painelSalvarAbas_(m.chave, JSON.stringify({ ocultas: ['sei'], abas: [{ nome: 'Tarefas', tipo: 'checklist' }, { nome: '<b>x</b>', tipo: 'hack' }] }));
 let ex = S.atender_({ acao: 'checar', chave: m.chave, planilhaId: 'M1' }).extras;
 assert.deepEqual(ex.ocultas, ['sei']); assert.deepEqual(ex.abas.map(a => a.nome), ['Viaturas', 'Tarefas', '<b>x</b>']);
 assert.equal(ex.abas[2].tipo, 'tabela', 'tipo inválido vira tabela');
 assert.deepEqual(ex.abas[0].colunas, ['Placa', 'Modelo']);
 ex = S.atender_({ acao: 'checar', chave, planilhaId: 'P1' }).extras;
 assert.deepEqual(ex.ocultas, ['cofin', 'belico']);
-S.painelSalvarAbas('TODOS', JSON.stringify({ ocultas: [], abas: [] }));
+S.painelSalvarAbas_('TODOS', JSON.stringify({ ocultas: [], abas: [] }));
 assert.equal(ss.abas['Abas']._d.length, 3, 'atualiza a linha, não duplica');
 assert.ok(S.mensagemVenda_('Ana', 'CC-1').includes('CC-1'));
 // ---- proteção e avisos ----
@@ -77,10 +77,45 @@ assert.ok(avisos().some(a => a.tipo === 'Painel aberto fora do Google' && a.chav
 cfg.appendRow(['Máx. pessoas por licença', '2', '']);
 ['b@x.com', 'c@x.com', 'd@x.com'].forEach(e => S.atender_({ acao: 'checar', chave, planilhaId: 'P1', email: e }));
 assert.ok(avisos().some(a => a.tipo === 'Muitas pessoas na mesma licença'), 'aviso de muitas pessoas');
-const dv = JSON.parse(S.dadosPainelDono()).avisos;
+const dv = JSON.parse(S.dadosPainelDono_()).avisos;
 assert.ok(dv.length >= 4 && dv.every(a => !a.visto));
-S.painelMarcarAvisos(JSON.stringify(dv.map(a => a.linha)));
-assert.ok(JSON.parse(S.dadosPainelDono()).avisos.every(a => a.visto), 'marcar como visto');
+S.painelMarcarAvisos_(JSON.stringify(dv.map(a => a.linha)));
+assert.ok(JSON.parse(S.dadosPainelDono_()).avisos.every(a => a.visto), 'marcar como visto');
+// ---- gestores ----
+S.aba_('Gestores', S.CAB_GEST); S.aba_('Atividade', S.CAB_ATIV);
+const api = (t, f, ...a) => S.api(t, f, JSON.stringify(a));
+const g = JSON.parse(api('', 'gestorCriar', 'Carlos', '11977776666', JSON.stringify(['ver', 'vender', 'bloquear'])));
+const tok = ss.abas['Gestores']._d[1][5];
+assert.ok(tok.length > 30, 'código do link longo');
+let dg = JSON.parse(api(tok, 'dadosPainelDono'));
+assert.equal(dg.eu.mestre, false); assert.equal(dg.clientes.length, 0, 'gestor sem "todos" não vê clientes dos outros');
+assert.equal(dg.gestores.length, 0); assert.equal(dg.servidor, '', 'gestor não vê servidor');
+const vg = JSON.parse(api(tok, 'painelNovaLicenca', 'Cliente do Carlos', '', JSON.stringify({})));
+dg = JSON.parse(api(tok, 'dadosPainelDono'));
+assert.equal(dg.clientes.length, 1); assert.equal(dg.clientes[0].vendedor, g.id, 'venda marcada com o gestor');
+api(tok, 'painelMudarStatus', vg.chave, 'Bloqueada'); // pode bloquear o próprio cliente
+assert.throws(() => api(tok, 'painelMudarStatus', chave, 'Bloqueada'), /não é seu/, 'não mexe no cliente do mestre');
+assert.throws(() => api(tok, 'painelPagamento', JSON.stringify({ chave: vg.chave })), /permissão/, 'sem permissão de pagamento');
+assert.throws(() => api(tok, 'gestorSalvar', g.id, 'Ativo', JSON.stringify(['todos'])), /permissão/, 'gestor não se dá permissão');
+assert.throws(() => api(tok, 'painelSalvarConfig', '{}'), /permissão/, 'gestor não mexe nos ajustes');
+assert.throws(() => api(tok, 'painelSalvarAbas', 'TODOS', '{}'), /permissão|mestre/, 'gestor não mexe em abas de todos');
+assert.throws(() => api('codigo-falso', 'dadosPainelDono'), /Link inválido/);
+S.__ativo = ''; assert.throws(() => api('', 'dadosPainelDono'), /negado/i, 'sem login de dono não é mestre'); S.__ativo = 'dono@gmail.com';
+// mestre vê tudo e o que o gestor fez
+const dm = JSON.parse(api('', 'dadosPainelDono'));
+assert.ok(dm.eu.mestre && dm.gestores.length === 1 && dm.clientes.length > 1);
+assert.ok(dm.atividade.some(a => a.quem.includes('Carlos') && a.detalhe.startsWith('Vendeu')), 'atividade do gestor');
+assert.ok(dm.atividade.some(a => a.acao.startsWith('NEGADO')), 'tentativa negada registrada');
+// mestre tira e dá permissão, bloqueia e troca o link
+api('', 'gestorSalvar', g.id, '', JSON.stringify(['ver', 'todos', 'pagamentos']));
+assert.ok(JSON.parse(api(tok, 'dadosPainelDono')).clientes.length > 1, 'com "todos" vê todos');
+assert.throws(() => api(tok, 'painelNovaLicenca', 'x', '', '{}'), /permissão/, 'perdeu permissão de vender');
+api('', 'gestorSalvar', g.id, 'Bloqueado', '');
+assert.throws(() => api(tok, 'dadosPainelDono'), /bloqueado/, 'gestor bloqueado');
+api('', 'gestorSalvar', g.id, 'Ativo', '');
+api('', 'gestorNovoLink', g.id);
+assert.throws(() => api(tok, 'dadosPainelDono'), /Link inválido/, 'link antigo para de funcionar');
+console.log('gestores ok (permissões, só os próprios clientes, bloqueio, troca de link, atividade)');
 console.log('servidor ok (licenças, planos, pagamentos, abas, proteção e avisos)');
 
 // ---- Banco do cliente ----

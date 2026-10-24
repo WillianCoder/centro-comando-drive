@@ -5,10 +5,10 @@ const fs = require('fs'), assert = require('assert');
 const { planilhaFalsa, carregar } = require('./google-falso.cjs');
 const ss = planilhaFalsa(), S = carregar('servidor/Licencas.gs', ss);
 ['Clientes', 'Instalações', 'Acessos', 'Pagamentos', 'Planos', 'Abas'].forEach(n => S.aba_(n, S['CAB_' + { Clientes: 'CLIENTES', 'Instalações': 'INST', Acessos: 'LOG', Pagamentos: 'PAG', Planos: 'PLANOS', Abas: 'ABAS' }[n]]));
-S.aba_('Avisos', S.CAB_AVISOS);
+S.aba_('Avisos', S.CAB_AVISOS); S.aba_('Gestores', S.CAB_GEST); S.aba_('Atividade', S.CAB_ATIV);
 const cfg = S.aba_('Config', ['Item', 'Valor', 'x']);
 [['Versão do painel', '1'], ['Link de cópia do modelo', 'https://docs.google.com/spreadsheets/d/MOD/copy'], ['Nome do produto', 'Centro de Comando'], ['Chave Pix', 'pix@teste.com'], ['Máx. instalações padrão', '1']].forEach(l => cfg.appendRow(l));
-S.painelSalvarPlanos(JSON.stringify([{ nome: 'Mensal', valor: 29.9, inst: 1, dias: 30 }, { nome: 'Vitalício', valor: 197, inst: 1, dias: '' }]));
+S.painelSalvarPlanos_(JSON.stringify([{ nome: 'Mensal', valor: 29.9, inst: 1, dias: 30 }, { nome: 'Vitalício', valor: 197, inst: 1, dias: '' }]));
 
 const ponte = `<script>window.google={script:{get run(){var ok,fail,px;var o={withSuccessHandler:function(f){ok=f;return px},withFailureHandler:function(f){fail=f;return px}};
 px=new Proxy(o,{get:function(t,k){if(k in t)return t[k];return function(){window.__gas(k,[].slice.call(arguments)).then(function(r){if(r.erro)fail&&fail({message:r.erro});else ok&&ok(r.v)})}}});return px}}};</script>`;
@@ -39,7 +39,7 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   // Pagamentos
   await aba('pagamentos'); await p.waitForTimeout(200);
   await p.selectOption('#pCli', chave); await p.click('#bPagar'); await p.waitForTimeout(400);
-  assert.equal(JSON.parse(S.dadosPainelDono()).pagamentos.length, 2, 'venda paga + pagamento registrado');
+  assert.equal(JSON.parse(S.dadosPainelDono_()).pagamentos.length, 2, 'venda paga + pagamento registrado');
   assert.ok((await p.textContent('#tbP')).includes('João Pereira'));
   await p.screenshot({ path: 'testes/saida/vendas-pagamentos.png' });
 
@@ -85,6 +85,43 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   await aba('links'); await p.fill('#cLink', 'https://docs.google.com/spreadsheets/d/NOVO/edit#gid=0'); await p.click('#bSalvarCfg'); await p.waitForTimeout(300);
   assert.equal(S.cfg_('Link de cópia do modelo'), 'https://docs.google.com/spreadsheets/d/NOVO/copy', 'link convertido para /copy');
 
+  // Gestores: mestre cria um gestor que só vende e vê
+  await aba('gestores'); await p.waitForTimeout(200);
+  await p.fill('#gNome', 'Carlos Gestor'); await p.fill('#gCont', '11977776666'); await p.click('#bNovoG'); await p.waitForTimeout(400);
+  assert.ok((await p.textContent('#gLista')).includes('Carlos Gestor'));
+  await p.screenshot({ path: 'testes/saida/vendas-gestores.png' });
+  const tok = ss.abas['Gestores']._d[1][5];
+  // painel do gestor (o mesmo arquivo, aberto pelo link dele)
+  const g = await b.newPage({ viewport: { width: 1200, height: 800 } });
+  g.on('pageerror', e => erros.push('gestor: ' + e.message));
+  await g.exposeFunction('__gas', (fn, args) => { try { return { v: S[fn].apply(null, args) }; } catch (e) { return { erro: e.message }; } });
+  await g.addInitScript(t => { window.CC_TOKEN = t; }, tok);
+  S.__ativo = ''; // o gestor não é o dono da planilha
+  await g.goto('file://' + process.cwd() + '/testes/saida/vendas.html'); await g.waitForTimeout(500);
+  assert.ok((await g.textContent('#quem')).includes('Painel do gestor'));
+  assert.equal(await g.isVisible('#toast'), false, 'gestor abre sem erro');
+  assert.equal(await g.isVisible('#abas button[data-t="gestores"]'), false, 'gestor não vê Gestores');
+  assert.equal(await g.isVisible('#abas button[data-t="links"]'), false, 'gestor não vê ajustes');
+  assert.equal(await g.isVisible('#abas button[data-t="planos"]'), false, 'sem permissão de planos');
+  await g.click('#abas button[data-t="vender"]'); await g.fill('#vNome', 'Cliente do Carlos'); await g.click('#bVender'); await g.waitForTimeout(400);
+  assert.ok(/CC-/.test(await g.inputValue('#vMsg')), 'gestor vende');
+  await g.click('#abas button[data-t="clientes"]'); await g.waitForTimeout(200);
+  const linhas = await g.$$eval('#tbC tr', t => t.map(x => x.textContent));
+  assert.equal(linhas.length, 1, 'gestor só vê o cliente dele'); assert.ok(linhas[0].includes('Cliente do Carlos'));
+  assert.equal(await g.$('#tbC button:has-text("Bloquear")'), null, 'sem botão de bloquear');
+  await g.screenshot({ path: 'testes/saida/gestor-painel.png' });
+  S.__ativo = 'dono@gmail.com';
+  // mestre vê o que ele fez e bloqueia
+  await p.evaluate(() => carregar()); await p.waitForTimeout(400);
+  await aba('atividade'); await p.waitForTimeout(200);
+  assert.ok((await p.textContent('#tbAtv')).includes('Vendeu: Cliente do Carlos'), 'mestre vê a venda do gestor');
+  await p.screenshot({ path: 'testes/saida/vendas-atividade.png' });
+  await aba('gestores'); await p.click('#gLista button:has-text("Bloquear gestor")'); await p.waitForTimeout(400);
+  S.__ativo = '';
+  await g.reload(); await g.waitForTimeout(500);
+  assert.ok((await g.textContent('#toast')).includes('bloqueado'), 'gestor bloqueado vê o aviso');
+  S.__ativo = 'dono@gmail.com';
+
   await aba('resumo'); await p.waitForTimeout(300);
   await p.screenshot({ path: 'testes/saida/vendas-resumo.png' });
   // celular
@@ -92,6 +129,6 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   const larg = await p.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(larg <= 380, 'sem rolagem lateral no celular (' + larg + ')');
   assert.equal(erros.length, 0, erros.join('\n'));
-  console.log('painel de vendas ok (vender, WhatsApp, pagamento, preço, abas, bloquear, avisos, links, celular)');
+  console.log('painel de vendas ok (vender, WhatsApp, pagamento, preço, abas, bloquear, avisos, gestores, atividade, links, celular)');
   await b.close();
 })().catch(e => { console.error(e.message); process.exit(1); });
