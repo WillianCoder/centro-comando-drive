@@ -1,0 +1,216 @@
+<script>
+/* Ponte: faz o painel funcionar no Google Apps Script, sem Claude e sem IA.
+   Imita window.claude.use('db' | 'mcp' | 'assets' | 'downloads' | 'user')
+   e guarda tudo no Google Drive da própria pessoa. */
+(function () {
+  'use strict';
+  if (window.claude && window.claude.__ponte) return;
+
+  var INTERVALO_BANCO = 20000;      // confere mudanças no banco a cada 20 s
+  var INTERVALO_DRIVE = 300000;     // atualiza leituras do Drive a cada 5 min
+
+  function chamar(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (ok, falha) {
+      if (!window.google || !google.script || !google.script.run) {
+        falha({ code: 'server_unavailable', message: 'Painel aberto fora do Google.' });
+        return;
+      }
+      var r = google.script.run
+        .withSuccessHandler(function (txt) {
+          var v;
+          try { v = txt ? JSON.parse(txt) : null; } catch (e) { v = txt; }
+          if (v && v.__erro) falha({ code: v.code || 'erro', message: v.__erro });
+          else ok(v);
+        })
+        .withFailureHandler(function (e) {
+          falha({ code: 'erro', message: (e && e.message) || String(e) });
+        });
+      r[fn].apply(r, args.map(function (a) { return JSON.stringify(a === undefined ? null : a); }));
+    });
+  }
+
+  function paraBase64(blob) {
+    return new Promise(function (ok, falha) {
+      var fr = new FileReader();
+      fr.onload = function () { ok(String(fr.result).split(',')[1] || ''); };
+      fr.onerror = function () { falha(fr.error); };
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  /* ===== BANCO (documentos e coleções) ===== */
+  var cacheDoc = {};          // caminho -> dados (ou null)
+  var ouvintes = [];          // { tipo:'doc'|'col', caminho, cb, ultimo }
+  var marca = 0;              // última mudança conhecida do servidor
+  var rodando = false;
+
+  function snapDoc(caminho, dados) {
+    var id = caminho.split('/').pop();
+    return { id: id, exists: dados != null, data: function () { return dados == null ? undefined : JSON.parse(JSON.stringify(dados)); } };
+  }
+  function snapCol(lista) {
+    var docs = (lista || []).map(function (x) { return snapDoc(x.caminho, x.dados); });
+    return { docs: docs, size: docs.length, empty: !docs.length, forEach: function (f) { docs.forEach(f); } };
+  }
+  function avisar(o, valor) {
+    var txt = JSON.stringify(valor);
+    if (txt === o.ultimo) return;
+    o.ultimo = txt;
+    try { o.cb(o.tipo === 'doc' ? snapDoc(o.caminho, valor) : snapCol(valor)); } catch (e) { setTimeout(function () { throw e; }); }
+  }
+  function lerOuvinte(o) {
+    var p = o.tipo === 'doc' ? chamar('pDbGet', o.caminho) : chamar('pDbListar', o.caminho);
+    return p.then(function (v) { if (o.tipo === 'doc') cacheDoc[o.caminho] = v; avisar(o, v); })
+      .catch(function (e) { if (o.erro) try { o.erro(e); } catch (x) {} });
+  }
+  function relerTodos() {
+    ouvintes.forEach(function (o) { lerOuvinte(o); });
+  }
+  function ciclo() {
+    if (rodando || !ouvintes.length || document.hidden) return;
+    rodando = true;
+    chamar('pDbMarca').then(function (m) {
+      if (m && m !== marca) { marca = m; relerTodos(); }
+    }).catch(function () {}).then(function () { rodando = false; });
+  }
+  setInterval(ciclo, INTERVALO_BANCO);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) ciclo(); });
+
+  function mudouLocal(caminho) {
+    // avisa na hora quem está ouvindo, sem esperar o próximo ciclo
+    var col = caminho.split('/').slice(0, -1).join('/');
+    ouvintes.forEach(function (o) {
+      if ((o.tipo === 'doc' && o.caminho === caminho) || (o.tipo === 'col' && o.caminho === col)) lerOuvinte(o);
+    });
+  }
+
+  function refDoc(caminho) {
+    caminho = String(caminho).replace(/^\/+|\/+$/g, '');
+    return {
+      id: caminho.split('/').pop(),
+      path: caminho,
+      get: function () {
+        return chamar('pDbGet', caminho).then(function (v) { cacheDoc[caminho] = v; return snapDoc(caminho, v); });
+      },
+      set: function (dados, opc) {
+        var merge = opc && opc.merge;
+        return chamar('pDbSet', caminho, dados, !!merge).then(function () { mudouLocal(caminho); });
+      },
+      update: function (dados) {
+        return chamar('pDbSet', caminho, dados, true).then(function () { mudouLocal(caminho); });
+      },
+      delete: function () {
+        return chamar('pDbApagar', caminho).then(function () { mudouLocal(caminho); });
+      },
+      onSnapshot: function (cb, erro) {
+        var o = { tipo: 'doc', caminho: caminho, cb: cb, erro: erro, ultimo: undefined };
+        ouvintes.push(o); lerOuvinte(o);
+        return function () { ouvintes = ouvintes.filter(function (x) { return x !== o; }); };
+      },
+      collection: function (nome) { return refCol(caminho + '/' + nome); }
+    };
+  }
+  function refCol(caminho) {
+    caminho = String(caminho).replace(/^\/+|\/+$/g, '');
+    return {
+      id: caminho.split('/').pop(),
+      path: caminho,
+      doc: function (id) { return refDoc(caminho + '/' + (id || novoId())); },
+      add: function (dados) {
+        var r = refDoc(caminho + '/' + novoId());
+        return r.set(dados).then(function () { return r; });
+      },
+      get: function () { return chamar('pDbListar', caminho).then(snapCol); },
+      onSnapshot: function (cb, erro) {
+        var o = { tipo: 'col', caminho: caminho, cb: cb, erro: erro, ultimo: undefined };
+        ouvintes.push(o); lerOuvinte(o);
+        return function () { ouvintes = ouvintes.filter(function (x) { return x !== o; }); };
+      }
+    };
+  }
+  function novoId() {
+    var c = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', s = '';
+    for (var i = 0; i < 20; i++) s += c.charAt(Math.floor(Math.random() * c.length));
+    return s;
+  }
+  var DB = {
+    doc: refDoc,
+    collection: refCol,
+    get: function (caminho) { return refDoc(caminho).get(); },
+    set: function (caminho, dados) { return refDoc(caminho).set(dados); }
+  };
+
+  /* ===== DRIVE (imita o conector Google Drive) ===== */
+  function prepararArgs(args) {
+    args = Object.assign({}, args || {});
+    var b = args.base64Content;
+    if (b && b.$file && b.$file.data) {
+      return paraBase64(b.$file.data).then(function (s) { args.base64Content = s; return args; });
+    }
+    return Promise.resolve(args);
+  }
+  var MCP = {
+    callTool: function (servidor, ferramenta, args) {
+      return prepararArgs(args).then(function (a) { return chamar('pDrive', ferramenta, a); });
+    },
+    watchTool: function (servidor, ferramenta, args, cb, opc) {
+      var vivo = true, tempo = (opc && opc.refetchInterval) || INTERVALO_DRIVE;
+      function rodar() {
+        if (!vivo) return;
+        MCP.callTool(servidor, ferramenta, args)
+          .then(function (r) { if (vivo) cb({ type: 'data', result: r }); })
+          .catch(function (e) { if (vivo) cb({ type: 'error', error: e }); });
+      }
+      rodar();
+      var t = setInterval(function () { if (!document.hidden) rodar(); }, tempo);
+      return function () { vivo = false; clearInterval(t); };
+    },
+    listTools: function () {
+      return Promise.resolve(['search_files', 'list_recent_files', 'get_file_metadata', 'read_file_content', 'download_file_content', 'create_file']
+        .map(function (n) { return { server: 'Google Drive', name: n }; }));
+    },
+    invalidate: function () { return Promise.resolve(); }
+  };
+
+  /* ===== ARQUIVOS (envio de arquivos do painel) ===== */
+  var ASSETS = {
+    upload: function (arquivo, opc) {
+      var tipo = (opc && opc.type) || arquivo.type || 'application/octet-stream';
+      return paraBase64(arquivo).then(function (s) {
+        return chamar('pArquivoEnviar', { nome: arquivo.name || 'arquivo', tipo: tipo, base64: s });
+      });
+    },
+    url: function (id) { return 'https://drive.google.com/file/d/' + id + '/view'; },
+    delete: function (id) { return chamar('pArquivoApagar', id); }
+  };
+
+  /* ===== DOWNLOADS (salva no computador e uma cópia no Drive) ===== */
+  var DOWNLOADS = {
+    save: function (o) {
+      var blob = o.data instanceof Blob ? o.data : new Blob([o.data]);
+      try {
+        var u = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = u; a.download = o.filename || 'arquivo'; document.body.appendChild(a); a.click();
+        setTimeout(function () { URL.revokeObjectURL(u); a.remove(); }, 4000);
+      } catch (e) {}
+      return paraBase64(blob).then(function (s) {
+        return chamar('pDownloadSalvar', { nome: o.filename || 'arquivo', tipo: blob.type || 'application/octet-stream', base64: s });
+      }).then(function (r) { return { status: 'saved', url: r && r.url }; });
+    }
+  };
+
+  /* ===== QUEM ESTÁ USANDO ===== */
+  var usuario = null;
+  var USER = {
+    get: function () { return usuario ? Promise.resolve(usuario) : chamar('pUsuario').then(function (u) { usuario = u; return u; }); },
+    me: function () { return USER.get(); }
+  };
+
+  var MAPA = { db: DB, mcp: MCP, assets: ASSETS, downloads: DOWNLOADS, user: USER };
+  window.claude = {
+    __ponte: true,
+    use: function (nome) { return Promise.resolve(MAPA[nome] || null); }
+  };
+})();
+</script>

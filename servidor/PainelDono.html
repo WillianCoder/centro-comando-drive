@@ -1,0 +1,75 @@
+<!doctype html>
+<html><head><base target="_top"><meta charset="utf-8">
+<style>
+  :root{--bg:#0f141b;--card:#18202b;--tx:#e8edf3;--mut:#93a1b3;--ok:#3fb26b;--urg:#e0553f;--ac:#4ea1ff}
+  *{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+  main{padding:16px}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+  .k{background:var(--card);border-radius:10px;padding:12px}.k b{display:block;font-size:26px}.k span{color:var(--mut);font-size:12px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}input{background:var(--card);color:var(--tx);border:1px solid #2c3949;border-radius:8px;padding:10px;min-height:44px;flex:1;min-width:160px}
+  button{min-height:44px;border:0;border-radius:8px;padding:0 14px;font-weight:700;cursor:pointer;background:var(--ac);color:#06121f}
+  button.urg{background:var(--urg);color:#1a0603}button.ok{background:var(--ok);color:#04150a}button.leve{background:#2c3949;color:var(--tx)}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden}
+  th,td{padding:8px;text-align:left;border-bottom:1px solid #243041;vertical-align:top}th{color:var(--mut);font-size:12px}
+  .st{padding:2px 8px;border-radius:99px;font-size:12px;font-weight:700}.Ativa{background:#1d4a2e}.Bloqueada{background:#5a1f17}.Vencida{background:#5a4a17}
+  .sub{color:var(--mut);font-size:12px}.ins{margin:4px 0 0;padding-left:16px;color:var(--mut);font-size:12px}
+  textarea{width:100%;height:190px;background:var(--card);color:var(--tx);border-radius:8px;padding:8px;font:12px monospace}
+  #msg{display:none;margin-top:12px}.parado{color:var(--urg)}
+</style></head>
+<body><main>
+  <div class="kpis" id="kpis"></div>
+  <div class="bar">
+    <input id="nNome" placeholder="Nome do novo cliente">
+    <input id="nCont" placeholder="WhatsApp ou e-mail (opcional)">
+    <button id="bNova">➕ Nova licença</button>
+    <button class="leve" id="bRec">↻ Atualizar</button>
+  </div>
+  <div class="bar"><input id="busca" placeholder="Buscar cliente, chave ou conta Google…"></div>
+  <div id="msg"><p class="sub">Mensagem pronta para mandar ao cliente (clique e copie):</p><textarea id="txt" readonly></textarea></div>
+  <table><thead><tr><th>Cliente</th><th>Status</th><th>Instalações</th><th>Último uso</th><th>Ações</th></tr></thead><tbody id="tb"></tbody></table>
+</main>
+<script>
+var D = null;
+function el(tag, o, filhos) { var e = document.createElement(tag); o = o || {}; if (o.text != null) e.textContent = o.text; if (o.cls) e.className = o.cls; (filhos || []).forEach(function (f) { if (f) e.appendChild(f); }); return e; }
+function quando(iso) { if (!iso) return '—'; var d = new Date(iso), dias = Math.floor((Date.now() - d) / 864e5); return d.toLocaleString('pt-BR') + (dias > 0 ? ' (' + dias + ' d)' : ''); }
+function carregar() { google.script.run.withSuccessHandler(function (t) { D = JSON.parse(t); desenhar(); }).dadosPainelDono(); }
+function kpi(n, t) { return el('div', { cls: 'k' }, [el('b', { text: String(n) }), el('span', { text: t })]); }
+function desenhar() {
+  var k = document.getElementById('kpis'); k.textContent = '';
+  var at = D.clientes.filter(function (c) { return c.status === 'Ativa'; }).length;
+  var sem = D.clientes.filter(function (c) { return c.status === 'Ativa' && (!c.ultimo || Date.now() - new Date(c.ultimo) > 14 * 864e5); }).length;
+  var hoje = D.instalacoes.filter(function (i) { return i.ultimo && Date.now() - new Date(i.ultimo) < 864e5; }).length;
+  [kpi(D.clientes.length, 'licenças vendidas'), kpi(at, 'ativas'), kpi(D.clientes.length - at, 'bloqueadas/vencidas'),
+   kpi(D.instalacoes.length, 'instalações'), kpi(hoje, 'usaram nas últimas 24 h'), kpi(sem, 'ativas sem uso há 14+ dias'), kpi('v' + D.versao, 'versão do painel')]
+    .forEach(function (x) { k.appendChild(x); });
+  var q = document.getElementById('busca').value.toLowerCase(), tb = document.getElementById('tb'); tb.textContent = '';
+  D.clientes.slice().reverse().forEach(function (c) {
+    var ins = D.instalacoes.filter(function (i) { return i.chave === c.chave; });
+    var texto = [c.nome, c.chave, c.contato].concat(ins.map(function (i) { return i.email + ' ' + i.planilha; })).join(' ').toLowerCase();
+    if (q && texto.indexOf(q) < 0) return;
+    var ul = el('ul', { cls: 'ins' }); ins.forEach(function (i) { ul.appendChild(el('li', { text: (i.email || 'conta?') + ' · ' + (i.planilha || i.id) + ' · ' + i.aberturas + ' aberturas · v' + (i.versao || '?') })); });
+    var bSt = c.status === 'Ativa' ? el('button', { cls: 'urg', text: '⛔ Bloquear' }) : el('button', { cls: 'ok', text: '✅ Liberar' });
+    bSt.onclick = function () { bSt.disabled = true; google.script.run.withSuccessHandler(carregar).withFailureHandler(function (e) { alert(e.message); carregar(); }).painelMudarStatus(c.chave, c.status === 'Ativa' ? 'Bloqueada' : 'Ativa'); };
+    var bMsg = el('button', { cls: 'leve', text: '✉ Mensagem' });
+    bMsg.onclick = function () { google.script.run.withSuccessHandler(mostrarMsg).painelMensagem(c.chave); };
+    var parado = c.ultimo && Date.now() - new Date(c.ultimo) > 14 * 864e5;
+    tb.appendChild(el('tr', {}, [
+      el('td', {}, [el('b', { text: c.nome }), el('div', { cls: 'sub', text: c.chave + (c.contato ? ' · ' + c.contato : '') })]),
+      el('td', {}, [el('span', { cls: 'st ' + c.status, text: c.status })]),
+      el('td', {}, [el('span', { text: ins.length + ' de ' + (c.max || 1) }), ul]),
+      el('td', { cls: parado ? 'parado' : '', text: quando(c.ultimo) }),
+      el('td', {}, [bSt, document.createTextNode(' '), bMsg])
+    ]));
+  });
+}
+function mostrarMsg(t) { document.getElementById('msg').style.display = 'block'; var a = document.getElementById('txt'); a.value = t; a.focus(); a.select(); }
+document.getElementById('busca').oninput = desenhar;
+document.getElementById('bRec').onclick = carregar;
+document.getElementById('bNova').onclick = function () {
+  var n = document.getElementById('nNome').value.trim(); if (!n) { alert('Digite o nome do cliente.'); return; }
+  this.disabled = true; var b = this;
+  google.script.run.withSuccessHandler(function (t) { b.disabled = false; mostrarMsg(JSON.parse(t).mensagem); document.getElementById('nNome').value = ''; document.getElementById('nCont').value = ''; carregar(); })
+    .withFailureHandler(function (e) { b.disabled = false; alert(e.message); })
+    .painelNovaLicenca(n, document.getElementById('nCont').value);
+};
+carregar();
+</script></body></html>
