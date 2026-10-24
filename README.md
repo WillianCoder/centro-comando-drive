@@ -79,6 +79,7 @@ Pronto! Está tudo no ar.
 
 | Aba | Para quê |
 |---|---|
+| 🚨 **Avisos** | Cópia da chave em outra planilha, painel aberto fora do Google, chaves falsas, muita gente na mesma licença. Botões para bloquear ou perguntar no WhatsApp. |
 | 📊 **Resumo** | Quanto entrou no mês e no total, gráfico dos últimos 6 meses, quem está atrasado (com botão **Cobrar no WhatsApp**), quem parou de usar. |
 | ➕ **Vender** | Nome + WhatsApp + plano → **Criar licença**. Sai a mensagem pronta e o botão **WhatsApp ➜ enviar**. |
 | 👥 **Clientes** | Buscar, filtrar atrasados, **⛔ Bloquear / ✅ Liberar**, **✏ Editar** (plano, valor, prazo, nº de instalações). |
@@ -95,6 +96,12 @@ Pronto! Está tudo no ar.
 | **Permitir 2 planilhas para um cliente** | Aba *Clientes*, coluna **Máx. instalações** → 2. |
 | **Licença com prazo** | Coluna **Validade** → coloque a data. Depois dela, trava sozinha. |
 | **Atualizar o painel de todos** | Troque o conteúdo do `painel.html` no Drive (Gerenciar versões → Enviar nova versão) → 🔐 Licenças → **🚀 Publicar nova versão**. |
+
+## Proteção contra cópia
+
+Painel só é entregue para chave ativa, cópia da planilha não leva a licença, cada painel leva a marca do cliente,
+o painel avisa se for aberto fora do Google, e os avisos graves chegam no seu e-mail e na aba **🚨 Avisos**.
+Detalhes em [docs/PROTECAO.md](docs/PROTECAO.md).
 
 ## O que o cliente recebe pronto (sem IA)
 

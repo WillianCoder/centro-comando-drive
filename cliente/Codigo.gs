@@ -165,16 +165,21 @@ function normalizarChave_(s) { return String(s || '').toUpperCase().replace(/[^A
 function emailAtual_() { try { return Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || ''; } catch (e) { return ''; } }
 function props_() { return PropertiesService.getScriptProperties(); }
 
-/* Cópia do painel guardada no Drive (para abrir mais rápido e sem internet). */
+/* Cópia do painel guardada no Drive, compactada (não abre como página; só este código lê). */
 function lerCache_() {
   var id = props_().getProperty('PAINEL_CACHE_ID');
   if (!id) return '';
-  try { return DriveApp.getFileById(id).getBlob().getDataAsString('UTF-8'); } catch (e) { return ''; }
+  try {
+    var b = DriveApp.getFileById(id).getBlob();
+    return Utilities.ungzip(b.setContentType('application/x-gzip')).getDataAsString('UTF-8');
+  } catch (e) { return ''; }
 }
 function gravarCache_(html) {
   var p = props_(), id = p.getProperty('PAINEL_CACHE_ID');
-  try { if (id) { DriveApp.getFileById(id).setContent(html); return; } } catch (e) {}
-  var f = pastaSistema_().createFile('painel-cache.html', html, MimeType.PLAIN_TEXT);
+  var z = Utilities.gzip(Utilities.newBlob(html, 'text/plain', 'p.txt'), 'sistema.dat');
+  try { if (id) { var f0 = DriveApp.getFileById(id); f0.setTrashed(true); } } catch (e) {}
+  var f = pastaSistema_().createFile(z.setName('sistema.dat'));
+  f.setDescription('Arquivo interno do Centro de Comando. Não apague.');
   p.setProperty('PAINEL_CACHE_ID', f.getId());
 }
 function pastaSistema_() {

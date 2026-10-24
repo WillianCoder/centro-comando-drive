@@ -29,13 +29,16 @@ function contexto(ss) {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => props[k] = v, deleteProperty: k => delete props[k] }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }), getDocumentLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    CacheService: { getScriptCache: () => ({ get: () => null, put() {}, remove() {} }) },
+    CacheService: { getScriptCache: () => ({ get: k => (ctx.__cache[k] ?? null), put: (k, v) => { ctx.__cache[k] = v; }, remove: k => { delete ctx.__cache[k]; } }) },
+    Session: { getEffectiveUser: () => ({ getEmail: () => 'dono@gmail.com' }), getActiveUser: () => ({ getEmail: () => 'cliente@gmail.com' }) },
+    MailApp: { getRemainingDailyQuota: () => 100, sendEmail: (para, assunto, corpo) => ctx.__emails.push({ para, assunto, corpo }) },
     DriveApp: { getFileById: () => ({ getBlob: () => ({ getDataAsString: () => "<html><head></head>const A='1abcdefghijklmnopqrstuvwxyz12'</html>" }) }) },
     Utilities: { getUuid: () => Math.random() + '', computeDigest: () => Array.from({ length: 32 }, () => Math.floor(Math.random() * 256) - 128), DigestAlgorithm: {} },
     ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: {} },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TESTE/exec' }) },
     console
   };
+  ctx.__cache = {}; ctx.__emails = [];
   vm.createContext(ctx); return ctx;
 }
 

@@ -33,6 +33,7 @@
 <body>
 <nav role="tablist" id="abas">
   <button data-t="resumo" aria-selected="true">📊 Resumo</button>
+  <button data-t="avisos" id="tabAv">🚨 Avisos</button>
   <button data-t="vender">➕ Vender</button>
   <button data-t="clientes">👥 Clientes</button>
   <button data-t="pagamentos">💰 Pagamentos</button>
@@ -45,6 +46,14 @@
     <div class="kpis" id="kpis"></div>
     <div class="caixa"><h3 style="margin-top:0">Recebido por mês (últimos 6)</h3><div class="barras" id="barras"></div><div style="height:20px"></div></div>
     <div class="caixa"><h3 style="margin-top:0">Precisa da sua atenção</h3><div id="atencao" class="sub"></div></div>
+  </section>
+
+  <section id="t-avisos" hidden>
+    <h2>Avisos importantes</h2>
+    <p class="sub">O sistema vigia sozinho: cópia da chave em outra planilha, painel aberto fora do Google, chaves falsas, muita gente usando a mesma licença. Os graves também chegam no seu e-mail.</p>
+    <div class="row"><select id="avFiltro" class="flex"><option value="novos">Não vistos</option><option value="Alta">Só graves</option><option value="">Todos</option></select>
+      <button class="leve flex" id="bVistos">✔ Marcar todos como vistos</button></div>
+    <div id="avLista"></div>
   </section>
 
   <section id="t-vender" hidden>
@@ -191,7 +200,33 @@ function msgCobranca(c) {
     (D.pix ? '\nPix: ' + D.pix : '') + '\nAssim que pagar, me avisa que eu libero na hora. Obrigado!';
 }
 
-function tudo() { resumo(); vender(); clientes(); pagamentos(); planos(); links(); abasCli(); }
+function tudo() { avisos(); resumo(); vender(); clientes(); pagamentos(); planos(); links(); abasCli(); }
+
+/* ----- Avisos ----- */
+var COR = { Alta: 'var(--urg)', 'Média': 'var(--warn)', Info: 'var(--mut)' };
+function avisos() {
+  var novos = D.avisos.filter(function (x) { return !x.visto; }), graves = novos.filter(function (x) { return x.grav === 'Alta'; });
+  $('tabAv').textContent = '🚨 Avisos' + (novos.length ? ' (' + novos.length + ')' : '');
+  $('tabAv').style.color = graves.length ? 'var(--urg)' : '';
+  var f = $('avFiltro').value, L = $('avLista'); L.textContent = '';
+  var lista = D.avisos.slice().reverse().filter(function (x) { return f === 'novos' ? !x.visto : f ? x.grav === f : true; });
+  if (!lista.length) L.appendChild(el('p', { cls: 'sub', text: f === 'novos' ? 'Nenhum aviso novo 👍' : 'Nenhum aviso.' }));
+  lista.forEach(function (x) {
+    var cx = el('div', { cls: 'caixa' }); cx.style.borderLeft = '4px solid ' + (COR[x.grav] || 'var(--mut)'); if (x.visto) cx.style.opacity = '.6';
+    var acoes = el('div', { cls: 'acoes' });
+    if (!x.visto) { var v = el('button', { cls: 'leve', text: '✔ Visto' }); v.onclick = function () { rodar('painelMarcarAvisos', [JSON.stringify([x.linha])], carregar); }; acoes.appendChild(v); }
+    var c = D.clientes.filter(function (k) { return k.chave === x.chave; })[0];
+    if (c && c.status === 'Ativa' && x.grav !== 'Info') { var bl = el('button', { cls: 'urg', text: '⛔ Bloquear ' + c.nome }); bl.onclick = function () { rodar('painelMudarStatus', [c.chave, 'Bloqueada'], function () { toast('Bloqueado'); carregar(); }); }; acoes.appendChild(bl); }
+    if (c) { var z = linkZap(c.contato, 'Olá, ' + c.nome + '! Notei um acesso diferente na sua licença do ' + D.produto + '. Foi você?'); if (z) acoes.appendChild(el('a', { cls: 'zap', href: z, text: 'Perguntar no WhatsApp' })); }
+    cx.appendChild(el('div', {}, [el('b', { text: (x.grav === 'Alta' ? '🚨 ' : x.grav === 'Média' ? '⚠ ' : 'ℹ ') + x.tipo }), el('span', { cls: 'sub', text: '  ' + new Date(x.quando).toLocaleString('pt-BR') })]));
+    cx.appendChild(el('div', { text: (x.cliente ? x.cliente + ' · ' : '') + (x.chave || '') , cls: 'sub' }));
+    cx.appendChild(el('div', { text: x.detalhe }));
+    cx.appendChild(acoes);
+    L.appendChild(cx);
+  });
+}
+$('avFiltro').onchange = avisos;
+$('bVistos').onclick = function () { var l = D.avisos.filter(function (x) { return !x.visto; }).map(function (x) { return x.linha; }); if (l.length) rodar('painelMarcarAvisos', [JSON.stringify(l)], function () { toast('Marcados ✅'); carregar(); }); };
 
 /* ----- Abas do cliente ----- */
 var PADRAO = [['qg','QG'],['pend','Pendências'],['cofin','COFIN'],['sites','Sites'],['arvore','Árvore'],['radar','Radar 3D'],['quadro','Quadro'],['tempo','Linha do tempo'],
@@ -250,6 +285,7 @@ function resumo() {
   meses.forEach(function (m, i) { var x = el('div', {}, [el('i', { text: vals[i] ? 'R$' + Math.round(vals[i]) : '' }), el('span', { text: m.slice(5) + '/' + m.slice(2, 4) })]); x.style.height = (vals[i] / max * 100) + '%'; b.appendChild(x); });
   var a = $('atencao'); a.textContent = '';
   var itens = [];
+  D.avisos.filter(function (x) { return !x.visto && x.grav === 'Alta'; }).forEach(function (x) { itens.push(['🚨 ' + x.tipo + ': ' + (x.cliente || x.chave), null]); });
   atraso.forEach(function (c) { itens.push(['💰 ' + c.nome + ': ' + pagto(c).t, c]); });
   D.clientes.filter(function (c) { return c.status === 'Ativa' && c.ultimo && Date.now() - new Date(c.ultimo) > 14 * 864e5; })
     .forEach(function (c) { itens.push(['😴 ' + c.nome + ' não abre o painel ' + quando(c.ultimo), null]); });

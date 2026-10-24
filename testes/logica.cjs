@@ -51,7 +51,37 @@ assert.deepEqual(ex.ocultas, ['cofin', 'belico']);
 S.painelSalvarAbas('TODOS', JSON.stringify({ ocultas: [], abas: [] }));
 assert.equal(ss.abas['Abas']._d.length, 3, 'atualiza a linha, não duplica');
 assert.ok(S.mensagemVenda_('Ana', 'CC-1').includes('CC-1'));
-console.log('servidor ok (licenças, planos, pagamentos, abas)');
+// ---- proteção e avisos ----
+S.aba_('Avisos', S.CAB_AVISOS); ss.abas['Avisos']._d.splice(1); S.__cache = {}; S.__emails.length = 0;
+const avisos = () => ss.abas['Avisos']._d.slice(1).map(l => ({ grav: l[1], tipo: l[2], chave: l[3] }));
+// a chave do primeiro cliente (limite 1) usada numa planilha copiada
+let rr = S.atender_({ acao: 'ativar', chave, planilhaId: 'COPIA-PIRATA', planilhaNome: 'Cópia de Centro de Comando', email: 'pirata@gmail.com' });
+assert.equal(rr.status, 'Limite');
+assert.ok(avisos().some(a => a.tipo === 'Possível cópia não autorizada' && a.grav === 'Alta' && a.chave === chave), 'aviso de cópia');
+assert.equal(S.__emails.length, 1, 'e-mail para o dono'); assert.equal(S.__emails[0].para, 'dono@gmail.com');
+S.atender_({ acao: 'ativar', chave, planilhaId: 'COPIA-PIRATA', email: 'pirata@gmail.com' });
+assert.equal(avisos().filter(a => a.tipo === 'Possível cópia não autorizada').length, 1, 'não repete o mesmo aviso');
+// chaves falsas
+for (let i = 0; i < 3; i++) S.atender_({ acao: 'ativar', chave: 'CC-ZZZZ-ZZZZ-ZZZ' + i, planilhaId: 'BRUTA' });
+assert.ok(avisos().some(a => a.tipo === 'Tentativas de chave falsa'), 'aviso de chave falsa');
+// marca do cliente no painel + farol
+const ht = S.atender_({ acao: 'baixar', chave, planilhaId: 'P1' }).html;
+assert.ok(ht.includes('Licenciado para Cliente Teste | ' + chave), 'marca no painel');
+assert.ok(ht.includes('?f=1&c='), 'farol no painel');
+const n0 = avisos().length;
+S.doGet({ parameter: { f: '1', c: chave, o: 'https://n-abc-0lu-script.googleusercontent.com', g: '1' } });
+assert.equal(avisos().length, n0, 'abrir pelo Google não gera aviso');
+S.doGet({ parameter: { f: '1', c: chave, o: 'file://', g: '0' } });
+assert.ok(avisos().some(a => a.tipo === 'Painel aberto fora do Google' && a.chave === chave), 'aviso de uso fora do Google');
+// muitas pessoas
+cfg.appendRow(['Máx. pessoas por licença', '2', '']);
+['b@x.com', 'c@x.com', 'd@x.com'].forEach(e => S.atender_({ acao: 'checar', chave, planilhaId: 'P1', email: e }));
+assert.ok(avisos().some(a => a.tipo === 'Muitas pessoas na mesma licença'), 'aviso de muitas pessoas');
+const dv = JSON.parse(S.dadosPainelDono()).avisos;
+assert.ok(dv.length >= 4 && dv.every(a => !a.visto));
+S.painelMarcarAvisos(JSON.stringify(dv.map(a => a.linha)));
+assert.ok(JSON.parse(S.dadosPainelDono()).avisos.every(a => a.visto), 'marcar como visto');
+console.log('servidor ok (licenças, planos, pagamentos, abas, proteção e avisos)');
 
 // ---- Banco do cliente ----
 const ss2 = planilhaFalsa(), C = contexto(ss2);
@@ -68,3 +98,15 @@ C.pDbApagar('"setores_itens/b"'); assert.equal(JSON.parse(C.pDbListar('"setores_
 assert.equal(JSON.parse(C.pDbGet('"nada/aqui"')), null);
 assert.equal(C.traduzirBusca_("parentId = 'X1' and title contains 'a'"), "('X1' in parents and title contains 'a') and trashed = false");
 console.log('banco ok');
+// cache do painel compactado
+const zlib = require('zlib');
+C.Utilities.newBlob = (d, t, n) => { let b = { bytes: Buffer.from(d), getDataAsString: () => b.bytes.toString('utf8'), setName() { return b; }, setContentType() { return b; } }; return b; };
+C.Utilities.gzip = (b) => { const z = { bytes: zlib.gzipSync(b.bytes), setName() { return z; }, setContentType() { return z; } }; return z; };
+C.Utilities.ungzip = (z) => ({ getDataAsString: () => zlib.gunzipSync(z.bytes).toString('utf8') });
+let guardado = null;
+const arquivo = { getId: () => 'CACHE1', setDescription() {}, setTrashed() {}, getBlob: () => guardado };
+C.DriveApp = { getFileById: () => arquivo, getFolderById: () => ({ createFile: b => { guardado = b; return arquivo; } }), createFolder: () => ({ getId: () => 'PASTA', createFile: b => { guardado = b; return arquivo; } }) };
+C.gravarCache_('<html><head></head><body>PAINEL SECRETO</body></html>');
+assert.ok(!guardado.bytes.toString('latin1').includes('PAINEL SECRETO'), 'cache não fica legível');
+assert.equal(C.lerCache_(), '<html><head></head><body>PAINEL SECRETO</body></html>');
+console.log('cache protegido ok');

@@ -5,6 +5,7 @@ const fs = require('fs'), assert = require('assert');
 const { planilhaFalsa, carregar } = require('./google-falso.cjs');
 const ss = planilhaFalsa(), S = carregar('servidor/Licencas.gs', ss);
 ['Clientes', 'Instalações', 'Acessos', 'Pagamentos', 'Planos', 'Abas'].forEach(n => S.aba_(n, S['CAB_' + { Clientes: 'CLIENTES', 'Instalações': 'INST', Acessos: 'LOG', Pagamentos: 'PAG', Planos: 'PLANOS', Abas: 'ABAS' }[n]]));
+S.aba_('Avisos', S.CAB_AVISOS);
 const cfg = S.aba_('Config', ['Item', 'Valor', 'x']);
 [['Versão do painel', '1'], ['Link de cópia do modelo', 'https://docs.google.com/spreadsheets/d/MOD/copy'], ['Nome do produto', 'Centro de Comando'], ['Chave Pix', 'pix@teste.com'], ['Máx. instalações padrão', '1']].forEach(l => cfg.appendRow(l));
 S.painelSalvarPlanos(JSON.stringify([{ nome: 'Mensal', valor: 29.9, inst: 1, dias: 30 }, { nome: 'Vitalício', valor: 197, inst: 1, dias: '' }]));
@@ -66,6 +67,20 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   assert.ok(S.atender_({ acao: 'checar', chave, planilhaId: 'X' }).ok);
   await p.screenshot({ path: 'testes/saida/vendas-clientes.png' });
 
+  // Avisos: alguém tenta usar a chave numa planilha copiada
+  S.atender_({ acao: 'ativar', chave, planilhaId: 'P-ORIG', email: 'joao@gmail.com' });
+  S.atender_({ acao: 'ativar', chave, planilhaId: 'P-PIRATA', email: 'pirata@gmail.com', planilhaNome: 'Cópia de Centro de Comando' });
+  await p.evaluate(() => carregar()); await p.waitForTimeout(400);
+  assert.ok((await p.textContent('#tabAv')).includes('('), 'contador de avisos na aba');
+  await aba('avisos'); await p.waitForTimeout(200);
+  assert.ok((await p.textContent('#avLista')).includes('Possível cópia não autorizada'));
+  await p.screenshot({ path: 'testes/saida/vendas-avisos.png' });
+  await p.click('#avLista button:has-text("Bloquear")'); await p.waitForTimeout(400);
+  assert.equal(S.atender_({ acao: 'checar', chave, planilhaId: 'P-ORIG' }).status, 'Bloqueada', 'bloquear pelo aviso');
+  await p.evaluate(() => carregar()); await p.waitForTimeout(400);
+  await p.click('#bVistos'); await p.waitForTimeout(400);
+  assert.ok(!(await p.textContent('#tabAv')).includes('('), 'avisos vistos');
+
   // Ajustes e links
   await aba('links'); await p.fill('#cLink', 'https://docs.google.com/spreadsheets/d/NOVO/edit#gid=0'); await p.click('#bSalvarCfg'); await p.waitForTimeout(300);
   assert.equal(S.cfg_('Link de cópia do modelo'), 'https://docs.google.com/spreadsheets/d/NOVO/copy', 'link convertido para /copy');
@@ -77,6 +92,6 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   const larg = await p.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(larg <= 380, 'sem rolagem lateral no celular (' + larg + ')');
   assert.equal(erros.length, 0, erros.join('\n'));
-  console.log('painel de vendas ok (vender, WhatsApp, pagamento, preço, abas, bloquear, links, celular)');
+  console.log('painel de vendas ok (vender, WhatsApp, pagamento, preço, abas, bloquear, avisos, links, celular)');
   await b.close();
 })().catch(e => { console.error(e.message); process.exit(1); });

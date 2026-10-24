@@ -14,6 +14,8 @@ var ABA_CFG = 'Config';
 var ABA_PLANOS = 'Planos';
 var ABA_PAG = 'Pagamentos';
 var ABA_ABAS = 'Abas';
+var ABA_AVISOS = 'Avisos';
+var CAB_AVISOS = ['Quando', 'Gravidade', 'Tipo', 'Chave', 'Cliente', 'Detalhe', 'Visto'];
 var CAB_ABAS = ['Chave (ou TODOS)', 'Abas escondidas', 'Abas personalizadas (não editar à mão)'];
 
 var COL = { // colunas da aba Clientes (1 = A)
@@ -24,7 +26,7 @@ var CAB_CLIENTES = ['Chave', 'Nome do cliente', 'Contato (WhatsApp/e-mail)', 'St
   'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações', 'Plano', 'Valor (R$)'];
 var CAB_PLANOS = ['Plano', 'Valor (R$)', 'Instalações', 'Dias de acesso (vazio = para sempre)', 'Descrição'];
 var CAB_PAG = ['Data', 'Chave', 'Cliente', 'Valor (R$)', 'Forma', 'Referente a', 'Observação'];
-var CAB_INST = ['Chave', 'Cliente', 'Conta Google', 'Planilha do cliente', 'ID da planilha', 'Primeiro acesso', 'Último acesso', 'Aberturas', 'Versão'];
+var CAB_INST = ['Chave', 'Cliente', 'Conta Google', 'Planilha do cliente', 'ID da planilha', 'Primeiro acesso', 'Último acesso', 'Aberturas', 'Versão', 'Pessoas que usaram'];
 var CAB_LOG = ['Quando', 'Chave', 'Conta Google', 'Ação', 'Resultado'];
 
 /* ---------- Menu ---------- */
@@ -50,6 +52,7 @@ function configurar() {
   aba_(ABA_LOG, CAB_LOG);
   aba_(ABA_PAG, CAB_PAG);
   aba_(ABA_ABAS, CAB_ABAS);
+  aba_(ABA_AVISOS, CAB_AVISOS);
   var pl = aba_(ABA_PLANOS, CAB_PLANOS);
   if (pl.getLastRow() < 2) {
     pl.appendRow(['Vitalício', 197, 1, '', 'Paga uma vez e usa para sempre']);
@@ -64,7 +67,9 @@ function configurar() {
     ['Nome do produto', 'Centro de Comando', 'Aparece na mensagem de venda.'],
     ['Máx. instalações padrão', '1', 'Quantas planilhas/contas cada chave pode usar.'],
     ['Chave Pix', '', 'Aparece na mensagem de venda e na cobrança.'],
-    ['Seu WhatsApp', '', 'Só números, com DDD. Ex.: 11999998888']
+    ['Seu WhatsApp', '', 'Só números, com DDD. Ex.: 11999998888'],
+    ['Avisar por e-mail', 'Sim', 'Sim = manda e-mail para você nos avisos graves (cópia, uso fora do Google).'],
+    ['Máx. pessoas por licença', '5', 'Mais contas Google que isso usando a mesma planilha gera um aviso.']
   ];
   var tem = cfg.getLastRow() > 1 ? cfg.getRange(2, 1, cfg.getLastRow() - 1, 1).getValues().map(function (l) { return l[0]; }) : [];
   padrao.forEach(function (l) { if (tem.indexOf(l[0]) < 0) cfg.appendRow(l); });
@@ -81,8 +86,8 @@ function configurar() {
   cl.setConditionalFormatRules(cond);
 
   var s = ss.getSheets();
-  [ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
-  s.forEach(function (x) { if ([ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
+  [ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
+  s.forEach(function (x) { if ([ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
   ss.setActiveSheet(cfg);
   SpreadsheetApp.getUi().alert('Configurado ✅', 'Agora preencha na aba "Config" o ID do arquivo do painel e o link de cópia do modelo. Depois siga o guia.', SpreadsheetApp.getUi().ButtonSet.OK);
 }
@@ -172,6 +177,7 @@ function mensagemVenda_(nome, chave) {
     '   (Na primeira vez o Google pede permissão: clique em Continuar → Avançado → Acessar → Permitir.)\n\n' +
     '3) Digite sua chave: ' + chave + '\n\n' +
     '4) Pronto! Use ⚙ ' + prod + ' → ▶ Abrir painel.\n\nQualquer dúvida, é só me chamar.' +
+    '\n\nObs.: a licença é pessoal e vale para ' + (function () { var c = acharCliente_(ss_().getSheetByName(ABA_CLIENTES), chave); return c ? (Number(c.valores[COL.maxInst - 1]) || 1) : 1; })() + ' planilha(s). Cópia ou revenda não são permitidas (Lei 9.609/98).' +
     (cfg_('Chave Pix') ? '\n\nPagamento via Pix: ' + cfg_('Chave Pix') : '');
 }
 
@@ -226,6 +232,14 @@ function dadosPainelDono() {
     servidor: (function () { try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; } })(),
     planilha: ss_().getUrl(),
     planos: planos_(),
+    avisos: (function () {
+      var sh = ss_().getSheetByName(ABA_AVISOS);
+      if (!sh || sh.getLastRow() < 2) return [];
+      var ini = Math.max(2, sh.getLastRow() - 299);
+      return sh.getRange(ini, 1, sh.getLastRow() - ini + 1, CAB_AVISOS.length).getValues().map(function (l, i) {
+        return { linha: ini + i, quando: data(l[0]), grav: l[1], tipo: l[2], chave: l[3], cliente: l[4], detalhe: l[5], visto: l[6] === 'Sim' };
+      }).filter(function (a) { return a.tipo; });
+    })(),
     pagamentos: (function () {
       var sh = ss_().getSheetByName(ABA_PAG);
       if (!sh || sh.getLastRow() < 2) return [];
@@ -332,7 +346,9 @@ function doPost(e) {
   catch (x) { return json_({ ok: false, msg: 'Erro no servidor: ' + x.message }); }
 }
 
-function doGet() {
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (p.f) { try { farol_(p); } catch (x) {} return ContentService.createTextOutput('ok'); }
   return ContentService.createTextOutput('Servidor de licenças no ar ✅');
 }
 
@@ -347,7 +363,12 @@ function atender_(d) {
     var ss = ss_();
     var cl = ss.getSheetByName(ABA_CLIENTES);
     var c = acharCliente_(cl, chave);
-    if (!c) { log_(chave, email, d.acao, 'chave não existe'); return { ok: false, status: 'Inválida', msg: 'Chave não encontrada.' }; }
+    if (!c) {
+      log_(chave, email, d.acao, 'chave não existe');
+      var n = contar_('inv:' + pid, 3600);
+      if (n >= 3) aviso_('Alta', 'Tentativas de chave falsa', chave, '', n + ' chaves erradas em 1 h na planilha "' + (d.planilhaNome || pid) + '" (' + (email || 'conta?') + ').');
+      return { ok: false, status: 'Inválida', msg: 'Chave não encontrada.' };
+    }
     var v = c.valores;
     var status = String(v[COL.status - 1] || 'Ativa');
     var validade = v[COL.validade - 1];
@@ -356,6 +377,7 @@ function atender_(d) {
     }
     if (status !== 'Ativa') {
       log_(chave, email, d.acao, status);
+      if (status === 'Bloqueada') aviso_('Info', 'Cliente bloqueado tentou abrir', chave, v[COL.nome - 1], (email || 'conta?') + ' tentou abrir o painel.', pid);
       return { ok: false, status: status, msg: status === 'Vencida' ? 'Sua licença venceu. Fale com o vendedor para renovar.' : 'Sua licença está bloqueada. Fale com o vendedor.' };
     }
 
@@ -369,14 +391,24 @@ function atender_(d) {
     if (minha < 0) {
       if (total >= max) {
         log_(chave, email, d.acao, 'limite de instalações');
+        aviso_('Alta', 'Possível cópia não autorizada', chave, v[COL.nome - 1],
+          'A chave foi usada numa planilha nova: "' + String(d.planilhaNome || pid).slice(0, 80) + '" por ' + (email || 'conta desconhecida') + '. Já tinha ' + total + ' instalação(ões).', pid);
         return { ok: false, status: 'Limite', msg: 'Esta chave já está em uso em ' + total + ' planilha(s). Fale com o vendedor para liberar outra.' };
       }
-      ins.appendRow([chave, v[COL.nome - 1], email, String(d.planilhaNome || '').slice(0, 120), pid, agora, agora, 1, d.versaoLocal || '']);
+      ins.appendRow([chave, v[COL.nome - 1], email, String(d.planilhaNome || '').slice(0, 120), pid, agora, agora, 1, d.versaoLocal || '', email]);
+      aviso_('Info', 'Nova instalação', chave, v[COL.nome - 1], (email || 'conta?') + ' ativou em "' + String(d.planilhaNome || '').slice(0, 80) + '".');
       if (!v[COL.ativada - 1]) cl.getRange(c.linha, COL.ativada).setValue(agora);
     } else {
       var r = minha + 2;
       ins.getRange(r, 3).setValue(email || lista[minha][2]);
       ins.getRange(r, 7, 1, 3).setValues([[agora, (Number(lista[minha][7]) || 0) + 1, d.versaoLocal || '']]);
+      var pessoas = String(lista[minha][9] || '').split(',').filter(Boolean);
+      if (email && pessoas.indexOf(email) < 0) {
+        pessoas.push(email);
+        ins.getRange(r, 10).setValue(pessoas.join(','));
+        var maxP = Number(cfg_('Máx. pessoas por licença')) || 5;
+        if (pessoas.length > maxP) aviso_('Média', 'Muitas pessoas na mesma licença', chave, v[COL.nome - 1], pessoas.length + ' contas Google diferentes já usaram esta planilha. A última: ' + email + '.');
+      }
     }
     cl.getRange(c.linha, COL.ultimo).setValue(agora);
     cl.getRange(c.linha, COL.acessos).setValue((Number(v[COL.acessos - 1]) || 0) + 1);
@@ -386,8 +418,8 @@ function atender_(d) {
     if (d.acao === 'baixar') {
       var html = lerPainel_();
       if (!html) return { ok: false, msg: 'O painel ainda não foi publicado pelo vendedor.' };
-      resp.html = html;
       resp.ids = idsDoPainel_(html);
+      resp.html = marcarPainel_(html, chave, v[COL.nome - 1]);
     }
     return resp;
   });
@@ -495,4 +527,66 @@ function painelSalvarAbas(chave, json) {
     if (linha) sh.getRange(linha, 1, 1, 3).setValues(valores); else sh.appendRow(valores[0]);
     return true;
   });
+}
+
+/* =====================================================================
+   PROTEÇÃO E AVISOS
+   - Cada painel entregue leva a "marca" do cliente (nome + chave): se vazar, você sabe de quem veio.
+   - O painel avisa o servidor quando abre. Se abrir fora do Google (arquivo copiado), gera aviso grave.
+   - Avisos graves podem ir para o seu e-mail.
+   ===================================================================== */
+function contar_(k, seg) {
+  var c = CacheService.getScriptCache(), n = Number(c.get(k) || 0) + 1;
+  c.put(k, String(n), seg);
+  return n;
+}
+
+function aviso_(grav, tipo, chave, cliente, detalhe, quem) {
+  var c = CacheService.getScriptCache(), k = 'av:' + tipo + ':' + chave + ':' + (quem != null ? quem : String(detalhe).slice(0, 60));
+  if (c.get(k)) return; // mesmo aviso só 1 vez a cada 12 h
+  c.put(k, '1', 43200);
+  var sh = aba_(ABA_AVISOS, CAB_AVISOS);
+  sh.appendRow([new Date(), grav, tipo, chave || '', cliente || '', String(detalhe).slice(0, 500), '']);
+  if (sh.getLastRow() > 3000) sh.deleteRows(2, 500);
+  if (grav === 'Alta' && String(cfg_('Avisar por e-mail') || 'Sim').toLowerCase().indexOf('s') === 0) {
+    try {
+      var dono = Session.getEffectiveUser().getEmail();
+      if (dono && MailApp.getRemainingDailyQuota() > 5) {
+        MailApp.sendEmail(dono, '🚨 Centro de Comando: ' + tipo, tipo + '\n\nCliente: ' + (cliente || '—') + '\nChave: ' + (chave || '—') + '\n\n' + detalhe +
+          '\n\nAbra o Painel de Licenças → 📊 Abrir painel de vendas → aba 🚨 Avisos.');
+      }
+    } catch (e) {}
+  }
+}
+
+function urlServidor_() { try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; } }
+
+/* Coloca a marca do cliente e o "farol" no painel entregue. */
+function marcarPainel_(html, chave, nome) {
+  var js = function (x) { return JSON.stringify(String(x)).replace(/</g, '\\u003c'); };
+  var bloco = '<!-- Licenciado para ' + String(nome).replace(/-->/g, '') + ' | ' + chave + ' | ' + new Date().toISOString() + ' -->' +
+    '<script>(function(){var C=' + js(chave) + ',N=' + js(nome) + ',U=' + js(urlServidor_()) + ';' +
+    'window.CC_LICENCA={chave:C,nome:N};' +
+    'function farol(){try{var o=String(location.origin||location.protocol);var ok=/googleusercontent\\.com$|script\\.google\\.com$/.test(o)&&!!(window.google&&google.script);' +
+    'if(U)(new Image()).src=U+"?f=1&c="+encodeURIComponent(C)+"&o="+encodeURIComponent(o)+"&g="+(ok?1:0)+"&t="+Date.now()}catch(e){}}' +
+    'function selo(){var d=document.createElement("div");d.textContent="Licenciado para "+N+" · "+C.slice(0,7)+"••••";' +
+    'd.style.cssText="position:fixed;right:8px;bottom:6px;font:11px system-ui,sans-serif;opacity:.45;pointer-events:none;z-index:5";document.body.appendChild(d)}' +
+    'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",function(){farol();selo()});else{farol();selo()}})();</' + 'script>';
+  var f = html.lastIndexOf('</body>');
+  return f >= 0 ? html.slice(0, f) + bloco + html.slice(f) : html + bloco;
+}
+
+function farol_(p) {
+  var chave = String(p.c || '').toUpperCase().slice(0, 20), origem = String(p.o || '').slice(0, 120);
+  if (String(p.g) === '1' && /googleusercontent\.com$|script\.google\.com$/.test(origem)) return; // aberto do jeito certo
+  var c = acharCliente_(ss_().getSheetByName(ABA_CLIENTES), chave);
+  aviso_('Alta', 'Painel aberto fora do Google', chave, c ? c.valores[COL.nome - 1] : '(chave desconhecida)',
+    'Alguém abriu uma cópia do painel fora da planilha (endereço: ' + (origem || 'arquivo no computador') + '). A cópia saiu da licença deste cliente.');
+}
+
+function painelMarcarAvisos(linhasJson) {
+  var linhas = JSON.parse(linhasJson), sh = ss_().getSheetByName(ABA_AVISOS);
+  if (!sh) return true;
+  linhas.forEach(function (l) { l = Number(l); if (l >= 2 && l <= sh.getLastRow()) sh.getRange(l, 7).setValue('Sim'); });
+  return true;
 }

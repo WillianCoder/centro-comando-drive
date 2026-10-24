@@ -3,6 +3,9 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const ponte = fs.readFileSync('cliente/Ponte.html', 'utf8');
 let html = fs.readFileSync('dist/painel.html', 'utf8');
+// marca do cliente + farol, igual o servidor entrega
+const { planilhaFalsa, carregar } = require('./google-falso.cjs');
+html = carregar('servidor/Licencas.gs', planilhaFalsa()).marcarPainel_(html, 'CC-TEST-AAAA-BBBB', 'Cliente Teste');
 const fake = `<script>
 window.__chamadas=[];var BANCO={},MARCA=1;
 function fn(nome,args){window.__chamadas.push(nome);var a=args.map(function(x){return JSON.parse(x)});
@@ -31,7 +34,8 @@ fs.writeFileSync('testes/saida/teste.html', html);
   const erros = [];
   p.on('pageerror', e => erros.push(e.message));
   p.on('console', m => { if (m.type() === 'error') erros.push('console: ' + m.text()); });
-  await p.route('**/*', r => r.request().url().startsWith('file:') ? r.continue() : r.abort());
+  const farois = [];
+  await p.route('**/*', r => { const u = r.request().url(); if (u.includes('?f=1')) farois.push(u); return u.startsWith('file:') ? r.continue() : r.abort(); });
   await p.goto('file://' + process.cwd() + '/testes/saida/teste.html');
   await p.waitForTimeout(4000);
   // grava uma nota pelo painel e confere se chegou no "banco"
@@ -64,6 +68,9 @@ fs.writeFileSync('testes/saida/teste.html', html);
   await p.click('#tabs button[data-v="pend"]'); await p.waitForTimeout(200);
   assert.equal(await p.isVisible('#v-cxa4'), false, 'aba personalizada some ao voltar para uma normal');
   console.log('abas personalizadas ok (esconder, tabela, checklist, links, anotações)');
+  assert.ok((await p.textContent('body')).includes('Licenciado para Cliente Teste'), 'selo da licença aparece');
+  assert.ok(farois.some(u => u.includes('f=1') && u.includes('g=0')), 'farol avisa uso fora do Google');
+  console.log('marca e farol ok');
   const r = await p.evaluate(() => ({ chamadas: [...new Set(window.__chamadas)], banco: Object.keys(window.__BANCO), falha: !!document.getElementById('ccFalha'), titulo: document.title }));
   await p.screenshot({ path: 'testes/saida/painel.png' });
   console.log(JSON.stringify(r, null, 1));
