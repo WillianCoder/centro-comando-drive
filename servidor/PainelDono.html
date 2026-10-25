@@ -65,6 +65,7 @@
       <div class="row">
         <label>Nome do cliente<input id="vNome" placeholder="Ex.: João Pereira"></label>
         <label>WhatsApp (com DDD) ou e-mail<input id="vCont" placeholder="Ex.: 11988887777"></label>
+        <label>Unidade / seção (aparece no painel dele)<input id="vUni" placeholder="Ex.: 5º BPM/M · SEÇÃO P4"></label>
       </div>
       <div class="row">
         <label>Plano<select id="vPlano"></select></label>
@@ -93,7 +94,7 @@
         <label>Máx. instalações<input id="eMax" type="number" min="1"></label>
         <label>Válida até (vazio = sempre)<input id="eVal" type="date"></label>
       </div>
-      <label>Observações<input id="eObs"></label>
+      <div class="row"><label>Unidade / seção (cabeçalho do painel)<input id="eUni"></label><label>Observações<input id="eObs"></label></div>
       <div class="acoes" style="margin-top:8px"><button id="bSalvarE">Salvar</button><button class="leve" id="bFecharE">Fechar</button></div>
     </div>
   </section>
@@ -169,6 +170,12 @@
     </div>
     <div class="caixa">
       <label>Esta planilha de controle<div class="copiar"><input id="lPlan" readonly><button class="leve flex" data-copiar="lPlan">📋 Copiar</button></div></label>
+    </div>
+    <h2>Verificar instalação</h2>
+    <div class="caixa">
+      <p class="sub" style="margin-top:0">Confere se está tudo pronto para vender e diz o que falta.</p>
+      <div class="acoes"><button id="bVerif">🩺 Verificar agora</button><button class="leve" id="bBackup">💾 Fazer backup agora</button></div>
+      <div id="verif" style="margin-top:10px"></div>
     </div>
     <h2>Ajustes</h2>
     <div class="caixa">
@@ -411,12 +418,12 @@ $('vPlano').onchange = precoPlano;
 $('bVender').onclick = function () {
   var n = $('vNome').value.trim(); if (!n) { toast('Digite o nome do cliente'); return; }
   var b = this; b.disabled = true;
-  var opc = { plano: $('vPlano').value, valor: $('vValor').value, pago: !!$('vPago').value, forma: $('vForma').value };
+  var opc = { unidade: $('vUni').value.trim(), plano: $('vPlano').value, valor: $('vValor').value, pago: !!$('vPago').value, forma: $('vForma').value };
   rodar('painelNovaLicenca', [n, $('vCont').value, JSON.stringify(opc)], function (t) {
     b.disabled = false; var res = JSON.parse(t);
     $('vRes').hidden = false; $('vMsg').value = res.mensagem;
     var z = linkZap($('vCont').value, res.mensagem); $('vZap').hidden = !z; $('vZap').href = z || '#';
-    $('vNome').value = ''; $('vCont').value = ''; toast('Licença criada ✅'); carregar();
+    $('vNome').value = ''; $('vCont').value = ''; $('vUni').value = ''; toast('Licença criada ✅'); carregar();
   }, function () { b.disabled = false; });
 };
 $('bCopiarMsg').onclick = function () { copiar($('vMsg').value); };
@@ -453,12 +460,12 @@ $('busca').oninput = clientes; $('filtro').onchange = clientes;
 function abrirEdicao(c) {
   EDIT = c; $('edit').hidden = false; $('eTit').textContent = 'Editar: ' + c.nome;
   opcoesPlanos($('ePlano'), c.plano); $('eValor').value = c.valor; $('eMax').value = c.max || 1;
-  $('eVal').value = c.validade ? c.validade.slice(0, 10) : ''; $('eObs').value = c.obs || '';
+  $('eVal').value = c.validade ? c.validade.slice(0, 10) : ''; $('eObs').value = c.obs || ''; $('eUni').value = c.unidade || '';
   $('edit').scrollIntoView({ behavior: 'smooth' });
 }
 $('bFecharE').onclick = function () { $('edit').hidden = true; };
 $('bSalvarE').onclick = function () {
-  rodar('painelEditarCliente', [JSON.stringify({ chave: EDIT.chave, plano: $('ePlano').value, valor: $('eValor').value, max: $('eMax').value, validade: $('eVal').value, obs: $('eObs').value })],
+  rodar('painelEditarCliente', [JSON.stringify({ chave: EDIT.chave, plano: $('ePlano').value, valor: $('eValor').value, max: $('eMax').value, validade: $('eVal').value, obs: $('eObs').value, unidade: $('eUni').value })],
     function () { $('edit').hidden = true; toast('Salvo ✅'); carregar(); });
 };
 
@@ -506,6 +513,19 @@ function links() {
   if (document.activeElement.tagName !== 'INPUT') { $('cProd').value = D.produto || ''; $('cPix').value = D.pix || ''; $('cZap').value = D.whats || ''; $('cLink').value = D.link || ''; }
 }
 document.querySelectorAll('[data-copiar]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); copiar($(b.dataset.copiar).value); }; });
+$('bVerif').onclick = function () {
+  rodar('checarInstalacao', [], function (t) {
+    var L = $('verif'); L.textContent = '';
+    var itens = JSON.parse(t), falta = itens.filter(function (i) { return !i.ok; }).length;
+    L.appendChild(el('b', { text: falta ? 'Faltam ' + falta + ' item(ns):' : 'Tudo certo para vender ✅' }));
+    itens.forEach(function (i) {
+      var d = el('div', {}, [el('span', { text: (i.ok ? '✅ ' : '❌ ') + i.texto })]); d.style.margin = '6px 0';
+      if (!i.ok) d.appendChild(el('div', { cls: 'sub', text: '→ ' + i.como }));
+      L.appendChild(d);
+    });
+  });
+};
+$('bBackup').onclick = function () { rodar('backupAgora', [], function () { toast('Backup salvo no Drive ✅'); }); };
 $('bSalvarCfg').onclick = function () {
   var link = $('cLink').value.trim().replace(/\/edit.*$/, '/copy');
   rodar('painelSalvarConfig', [JSON.stringify({ 'Nome do produto': $('cProd').value, 'Chave Pix': $('cPix').value, 'Seu WhatsApp': soNumeros($('cZap').value), 'Link de cópia do modelo': link })],

@@ -22,6 +22,9 @@ function onOpen() {
     .addSeparator()
     .addItem('🔄 Baixar versão nova do painel', 'ccAtualizar')
     .addItem('ℹ Situação da licença', 'ccSituacao')
+    .addSeparator()
+    .addItem('💾 Fazer backup dos meus dados', 'ccBackup')
+    .addItem('♻ Restaurar um backup', 'ccRestaurar')
     .addToUi();
 }
 
@@ -40,6 +43,7 @@ function ccAtivar() {
   p.setProperty('LIC_CHAVE', chave);
   marcarOk_(resp);
   prepararPlanilha_();
+  try { ligarBackupDiario_(); } catch (e) {}
   ui.alert('Licença ativada ✅', 'Pronto! Agora use o menu "' + NOME_PRODUTO + ' → Abrir painel".', ui.ButtonSet.OK);
 }
 
@@ -450,4 +454,66 @@ function pDownloadSalvar(o) {
 }
 function pUsuario() {
   return resp_(function () { var e = emailAtual_(); return { email: e, name: e.split('@')[0], id: e }; });
+}
+
+/* =====================================================================
+   BACKUP AUTOMÁTICO dos dados do painel (aba _banco)
+   Todo dia de madrugada, sozinho. Guarda os 14 últimos no Drive.
+   ===================================================================== */
+function ligarBackupDiario_() {
+  var tem = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'backupDiario'; });
+  if (!tem) ScriptApp.newTrigger('backupDiario').timeBased().everyDays(1).atHour(3).create();
+}
+
+function backupDiario() { return fazerBackup_(); }
+
+function fazerBackup_() {
+  var sh = folhaBanco_(), n = sh.getLastRow();
+  var linhas = n > 1 ? sh.getRange(2, 1, n - 1, 3).getValues() : [];
+  var nome = 'backup-' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd-HHmm') + '.json';
+  var blob = Utilities.gzip(Utilities.newBlob(JSON.stringify({ v: 1, em: new Date().toISOString(), linhas: linhas }), 'application/json', nome), nome + '.gz');
+  var pasta = subpasta_('Backups');
+  pasta.createFile(blob);
+  var arqs = [], it = pasta.getFiles();
+  while (it.hasNext()) arqs.push(it.next());
+  arqs.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); }).slice(14).forEach(function (f) { f.setTrashed(true); });
+  return { nome: nome, linhas: linhas.length };
+}
+
+function ccBackup() {
+  var r = fazerBackup_();
+  SpreadsheetApp.getUi().alert('Backup feito ✅', r.linhas + ' registro(s) salvos na pasta "Backups" do Centro de Comando no seu Drive.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function listarBackups_() {
+  var out = [], it = subpasta_('Backups').getFiles();
+  while (it.hasNext()) { var f = it.next(); out.push({ id: f.getId(), nome: f.getName(), em: f.getDateCreated() }); }
+  return out.sort(function (a, b) { return b.em - a.em; });
+}
+
+function restaurarBackup_(id) {
+  var b = DriveApp.getFileById(id).getBlob();
+  var dados = JSON.parse(Utilities.ungzip(b.setContentType('application/x-gzip')).getDataAsString('UTF-8'));
+  if (!dados || !Array.isArray(dados.linhas)) throw new Error('Arquivo de backup inválido.');
+  return comTrava_(function () {
+    fazerBackup_(); // guarda o estado atual antes, por segurança
+    var sh = folhaBanco_(), n = sh.getLastRow();
+    if (n > 1) sh.deleteRows(2, n - 1);
+    if (dados.linhas.length) sh.getRange(2, 1, dados.linhas.length, 3).setNumberFormat('@').setValues(dados.linhas);
+    try { CacheService.getScriptCache().removeAll(dados.linhas.map(function (l) { return 'db:' + l[0]; })); } catch (e) {}
+    props_().setProperty('DB_MARCA', String(Date.now()));
+    return dados.linhas.length;
+  });
+}
+
+function ccRestaurar() {
+  var ui = SpreadsheetApp.getUi(), lista = listarBackups_().slice(0, 14);
+  if (!lista.length) { ui.alert('Ainda não há backups.'); return; }
+  var txt = lista.map(function (b, i) { return (i + 1) + ') ' + Utilities.formatDate(b.em, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'); }).join('\n');
+  var r = ui.prompt('Restaurar backup', 'Digite o número do backup:\n\n' + txt + '\n\n(O estado atual é guardado antes, por segurança.)', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var i = Number(r.getResponseText()) - 1;
+  if (!(i >= 0 && i < lista.length)) { ui.alert('Número inválido.'); return; }
+  var n = restaurarBackup_(lista[i].id);
+  ui.alert('Restaurado ✅', n + ' registro(s) voltaram. Abra o painel de novo.', ui.ButtonSet.OK);
 }

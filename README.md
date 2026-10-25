@@ -28,11 +28,12 @@ VOCÊ (dono)                                    CLIENTE
 
 ---
 
-## ⚠ Antes de vender: tire os seus dados do painel
+## Qual painel subir
 
-O painel atual tem **dados da sua seção embutidos** (nomes do efetivo, demandas, COFIN, IDs das suas planilhas).
-Quem comprar vai ver esses dados se você vender sem limpar.
-Antes da primeira venda, peça ao Claude: *"limpe os dados embutidos do Centro de Comando para uma versão modelo"*, e gere o `painel.html` de novo.
+- **`dist/painel-limpo.html` → para VENDER.** Sem os dados da sua seção (demandas, material, links, efetivo, nomes, e-mail). O cabeçalho mostra a unidade de cada cliente.
+- `dist/painel.html` → o seu, com os seus dados. **Não use para vender.**
+
+O botão **🩺 Verificar instalação** avisa se você subiu o painel errado.
 
 ---
 
@@ -47,7 +48,7 @@ Antes da primeira venda, peça ao Claude: *"limpe os dados embutidos do Centro d
 6. Menu **🔐 Licenças → 🛠 Configurar (primeira vez)**. O Google pede permissão: **Continuar → Avançado → Acessar (não seguro) → Permitir**. (É o seu próprio código, pode confiar.)
 
 ### Passo 2 — Suba o painel no seu Drive
-1. Baixe o arquivo [`dist/painel.html`](dist/painel.html) (botão **Download raw file**).
+1. Baixe o arquivo [`dist/painel-limpo.html`](dist/painel-limpo.html) (botão **Download raw file**).
 2. Suba no seu Google Drive (pode ser numa pasta "Centro de Comando — sistema"). **Não compartilhe** esse arquivo com ninguém.
 3. Abra o arquivo no Drive, copie o ID do endereço (o trecho entre `/d/` e `/view`).
 4. Cole na aba **Config**, linha **ID do arquivo do painel**.
@@ -99,6 +100,13 @@ Pronto! Está tudo no ar.
 | **Licença com prazo** | Coluna **Validade** → coloque a data. Depois dela, trava sozinha. |
 | **Atualizar o painel de todos** | Troque o conteúdo do `painel.html` no Drive (Gerenciar versões → Enviar nova versão) → 🔐 Licenças → **🚀 Publicar nova versão**. |
 
+## Automático (sem IA, sem você fazer nada)
+
+- **Todo dia às 7h:** marca licenças vencidas, avisa quem vence em até 3 dias e manda um resumo para o seu e-mail.
+- **Toda segunda:** backup da sua planilha de licenças (pasta *Centro de Comando — backups*, guarda 8).
+- **No cliente, todo dia às 3h:** backup dos dados do painel dele (guarda 14). Ele restaura pelo menu ⚙ → ♻ Restaurar um backup.
+- **🩺 Verificar instalação** (menu 🔐 Licenças ou aba 🔗 Links): confere tudo e diz o que falta.
+
 ## Gestores (painel do responsável)
 
 Você é o **mestre**. No painel de vendas, aba **🧑‍💼 Gestores**, crie um gestor e marque o que ele pode fazer:
@@ -132,7 +140,7 @@ ele cola o ID das planilhas dele na coluna C. Veja [docs/GUIA-CLIENTE.md](docs/G
 - `cliente/Codigo.gs` — menu, licença, cópia do painel no Drive, banco na aba oculta `_banco` (JSON em pedaços de 45 mil caracteres), e as ferramentas do Drive.
 - `servidor/Licencas.gs` — chaves, instalações, bloqueio, validade e entrega do painel só para licença ativa.
 - `ferramentas/preparar-painel.mjs` — pega o HTML exportado do Claude e gera `dist/painel.html`.
-  `node ferramentas/preparar-painel.mjs painel-original.html`
+  `node ferramentas/preparar-painel.mjs painel-original.html` (o seu) e `node ferramentas/preparar-painel.mjs --limpo painel-original.html` (para vender)
 - `cliente/Extras.html` — abas escondidas e abas personalizadas (tabela, checklist, links, anotações), salvas no banco da planilha.
 - Testes: `./testes/rodar-tudo.sh`
   - `testes/logica.cjs` — licenças, limite de instalações, bloqueio, validade, planos, pagamentos/renovação, abas, banco em pedaços.

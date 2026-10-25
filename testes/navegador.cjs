@@ -2,7 +2,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const ponte = fs.readFileSync('cliente/Ponte.html', 'utf8');
-let html = fs.readFileSync('dist/painel.html', 'utf8');
+let html = fs.readFileSync(process.env.PAINEL || 'dist/painel.html', 'utf8');
 // marca do cliente + farol, igual o servidor entrega
 const { planilhaFalsa, carregar } = require('./google-falso.cjs');
 html = carregar('servidor/Licencas.gs', planilhaFalsa()).marcarPainel_(html, 'CC-TEST-AAAA-BBBB', 'Cliente Teste');
@@ -72,7 +72,7 @@ fs.writeFileSync('testes/saida/teste.html', html);
   assert.ok(farois.some(u => u.includes('f=1') && u.includes('g=0')), 'farol avisa uso fora do Google');
   console.log('marca e farol ok');
   const r = await p.evaluate(() => ({ chamadas: [...new Set(window.__chamadas)], banco: Object.keys(window.__BANCO), falha: !!document.getElementById('ccFalha'), titulo: document.title }));
-  await p.screenshot({ path: 'testes/saida/painel.png' });
+  await p.screenshot({ path: 'testes/saida/' + (process.env.PAINEL ? 'painel-limpo' : 'painel') + '.png' });
   console.log(JSON.stringify(r, null, 1));
   console.log('ERROS:', erros.length ? erros.slice(0, 15).join('\n') : 'nenhum');
   await b.close();

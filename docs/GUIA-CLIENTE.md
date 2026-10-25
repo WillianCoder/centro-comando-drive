@@ -15,6 +15,9 @@
 - Arquivos enviados e downloads ficam na pasta **Centro de Comando — arquivos do painel** no seu Drive.
 - Quem você compartilhar a planilha (como Editor) vê e edita os mesmos dados.
 
+## Backup
+O painel faz backup sozinho todo dia. Para voltar um dia: menu **⚙ Centro de Comando → ♻ Restaurar um backup**.
+
 ## Ligar as suas planilhas (aba "Fontes")
 Algumas abas do painel leem planilhas do Drive (escala, numerador, HTs, inventário…).
 1. Abra a aba **Fontes**.

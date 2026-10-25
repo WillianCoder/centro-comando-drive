@@ -24,10 +24,10 @@ var CAB_ABAS = ['Chave (ou TODOS)', 'Abas escondidas', 'Abas personalizadas (nã
 
 var COL = { // colunas da aba Clientes (1 = A)
   chave: 1, nome: 2, contato: 3, status: 4, maxInst: 5, validade: 6,
-  criada: 7, ativada: 8, ultimo: 9, acessos: 10, obs: 11, plano: 12, valor: 13, vendedor: 14
+  criada: 7, ativada: 8, ultimo: 9, acessos: 10, obs: 11, plano: 12, valor: 13, vendedor: 14, unidade: 15
 };
 var CAB_CLIENTES = ['Chave', 'Nome do cliente', 'Contato (WhatsApp/e-mail)', 'Status', 'Máx. instalações',
-  'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações', 'Plano', 'Valor (R$)', 'Vendido por'];
+  'Validade (vazio = sem fim)', 'Criada em', 'Ativada em', 'Último acesso', 'Nº de aberturas', 'Observações', 'Plano', 'Valor (R$)', 'Vendido por', 'Unidade (aparece no painel)'];
 var CAB_PLANOS = ['Plano', 'Valor (R$)', 'Instalações', 'Dias de acesso (vazio = para sempre)', 'Descrição'];
 var CAB_PAG = ['Data', 'Chave', 'Cliente', 'Valor (R$)', 'Forma', 'Referente a', 'Observação'];
 var CAB_INST = ['Chave', 'Cliente', 'Conta Google', 'Planilha do cliente', 'ID da planilha', 'Primeiro acesso', 'Último acesso', 'Aberturas', 'Versão', 'Pessoas que usaram'];
@@ -44,6 +44,8 @@ function onOpen() {
     .addItem('🧹 Remover instalação da linha selecionada', 'removerInstalacaoSelecionada')
     .addSeparator()
     .addItem('🚀 Publicar nova versão do painel', 'publicarVersao')
+    .addItem('🩺 Verificar instalação', 'verificarInstalacao')
+    .addItem('💾 Fazer backup agora', 'backupAgora')
     .addItem('🛠 Configurar (primeira vez)', 'configurar')
     .addToUi();
 }
@@ -94,6 +96,7 @@ function configurar() {
   var s = ss.getSheets();
   [ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_GEST, ABA_ATIV, ABA_INST, ABA_LOG, ABA_CFG].forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
   s.forEach(function (x) { if ([ABA_CLIENTES, ABA_PAG, ABA_PLANOS, ABA_ABAS, ABA_AVISOS, ABA_GEST, ABA_ATIV, ABA_INST, ABA_LOG, ABA_CFG].indexOf(x.getName()) < 0 && x.getLastRow() === 0) ss.deleteSheet(x); });
+  instalarRotina_();
   ss.setActiveSheet(cfg);
   SpreadsheetApp.getUi().alert('Configurado ✅', 'Agora preencha na aba "Config" o ID do arquivo do painel e o link de cópia do modelo. Depois siga o guia.', SpreadsheetApp.getUi().ButtonSet.OK);
 }
@@ -169,6 +172,7 @@ function criarLicenca(nome, contato, opc) {
     }
     l[COL.valor - 1] = valor;
     l[COL.vendedor - 1] = opc.vendedor || 'Mestre';
+    l[COL.unidade - 1] = String(opc.unidade || '').slice(0, 60);
     sh.appendRow(l);
     if (opc.pago && valor) registrarPagamento_(chave, nome, valor, opc.forma || 'Pix', plano ? plano.nome : 'Compra');
   });
@@ -260,7 +264,7 @@ function dadosPainelDono_(quem) {
         linha: i + 2, chave: l[COL.chave - 1], nome: l[COL.nome - 1], contato: l[COL.contato - 1], status: l[COL.status - 1],
         max: l[COL.maxInst - 1], validade: data(l[COL.validade - 1]), criada: data(l[COL.criada - 1]),
         ultimo: data(l[COL.ultimo - 1]), acessos: l[COL.acessos - 1],
-        plano: l[COL.plano - 1] || '', valor: Number(l[COL.valor - 1]) || 0, obs: l[COL.obs - 1] || '', vendedor: l[COL.vendedor - 1] || 'Mestre'
+        plano: l[COL.plano - 1] || '', valor: Number(l[COL.valor - 1]) || 0, obs: l[COL.obs - 1] || '', vendedor: l[COL.vendedor - 1] || 'Mestre', unidade: l[COL.unidade - 1] || ''
       };
     }),
     instalacoes: insts.filter(function (l) { return l[0]; }).map(function (l) {
@@ -333,6 +337,7 @@ function painelEditarCliente_(json) {
   if (o.plano != null) sh.getRange(c.linha, COL.plano).setValue(o.plano);
   if (o.validade !== undefined) sh.getRange(c.linha, COL.validade).setValue(o.validade ? new Date(o.validade + 'T23:59:00') : '');
   if (o.obs != null) sh.getRange(c.linha, COL.obs).setValue(o.obs);
+  if (o.unidade != null) sh.getRange(c.linha, COL.unidade).setValue(String(o.unidade).slice(0, 60));
   return true;
 }
 function painelSalvarConfig_(json) {
@@ -430,7 +435,7 @@ function atender_(d) {
       var html = lerPainel_();
       if (!html) return { ok: false, msg: 'O painel ainda não foi publicado pelo vendedor.' };
       resp.ids = idsDoPainel_(html);
-      resp.html = marcarPainel_(html, chave, v[COL.nome - 1]);
+      resp.html = marcarPainel_(html, chave, v[COL.nome - 1], v[COL.unidade - 1]);
     }
     return resp;
   });
@@ -573,7 +578,8 @@ function aviso_(grav, tipo, chave, cliente, detalhe, quem) {
 function urlServidor_() { try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; } }
 
 /* Coloca a marca do cliente e o "farol" no painel entregue. */
-function marcarPainel_(html, chave, nome) {
+function marcarPainel_(html, chave, nome, unidade) {
+  if (unidade) html = html.split('MINHA UNIDADE · MINHA SEÇÃO').join(String(unidade).replace(/[<>&"]/g, '').toUpperCase());
   var js = function (x) { return JSON.stringify(String(x)).replace(/</g, '\\u003c'); };
   var bloco = '<!-- Licenciado para ' + String(nome).replace(/-->/g, '') + ' | ' + chave + ' | ' + new Date().toISOString() + ' -->' +
     '<script>(function(){var C=' + js(chave) + ',N=' + js(nome) + ',U=' + js(urlServidor_()) + ';' +
@@ -617,6 +623,8 @@ var PERMS = [
 /* Qual permissão cada ação exige. "mestre" = só você. */
 var API = {
   dadosPainelDono: ['ver', function (q) { return dadosPainelDono_(q); }],
+  checarInstalacao: ['mestre', function () { return JSON.stringify(checarInstalacao_()); }],
+  backupAgora: ['mestre', function () { return backupAgora(true); }],
   painelNovaLicenca: ['vender', function (q, a) { return painelNovaLicenca_(a[0], a[1], a[2], q.mestre ? 'Mestre' : q.id); }],
   painelMensagem: ['vender', function (q, a) { dono_(q, a[0]); return painelMensagem_(a[0]); }],
   painelMudarStatus: ['bloquear', function (q, a) { dono_(q, a[0]); return painelMudarStatus_(a[0], a[1]); }],
@@ -770,7 +778,7 @@ function listarAtividade_(id) {
 }
 var NOMES_ACAO = { painelNovaLicenca: 'Vendeu', painelMudarStatus: 'Mudou status', painelEditarCliente: 'Editou cliente', painelPagamento: 'Registrou pagamento',
   painelApagarPagamento: 'Apagou pagamento', painelSalvarPlanos: 'Mudou planos/preços', painelSalvarAbas: 'Mudou abas', painelMarcarAvisos: 'Marcou avisos',
-  painelSalvarConfig: 'Mudou ajustes', gestorCriar: 'Criou gestor', gestorSalvar: 'Mudou gestor', gestorNovoLink: 'Trocou link do gestor' };
+  painelSalvarConfig: 'Mudou ajustes', backupAgora: 'Fez backup', gestorCriar: 'Criou gestor', gestorSalvar: 'Mudou gestor', gestorNovoLink: 'Trocou link do gestor' };
 function resumoArgs_(nome, a) {
   try {
     var o = /^\s*[{\[]/.test(String(a[0])) ? JSON.parse(a[0]) : null;
@@ -792,4 +800,91 @@ function paginaGestor_(token) {
   var html = HtmlService.createHtmlOutputFromFile('PainelDono').getContent()
     .replace('<head>', '<head><script>window.CC_TOKEN=' + JSON.stringify(token) + ';</' + 'script>');
   return HtmlService.createHtmlOutput(html).setTitle('Painel do gestor · ' + g.nome).addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/* =====================================================================
+   ROTINA AUTOMÁTICA (todo dia de manhã, sozinha, sem IA)
+   - marca licenças vencidas
+   - avisa quem vence em até 3 dias (com lista para cobrar)
+   - manda um resumo por e-mail se houver algo importante
+   - backup semanal desta planilha no seu Drive (guarda os 8 últimos)
+   ===================================================================== */
+function instalarRotina_() {
+  var tem = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'rotinaDiaria'; });
+  if (!tem) ScriptApp.newTrigger('rotinaDiaria').timeBased().everyDays(1).atHour(7).create();
+}
+
+function rotinaDiaria() {
+  var r = { vencidas: [], vencendo: [], parados: [] };
+  var cl = ss_().getSheetByName(ABA_CLIENTES);
+  if (!cl || cl.getLastRow() < 2) return r;
+  var v = cl.getRange(2, 1, cl.getLastRow() - 1, CAB_CLIENTES.length).getValues(), agora = Date.now();
+  v.forEach(function (l, i) {
+    if (!l[0] || l[COL.status - 1] !== 'Ativa') return;
+    var val = l[COL.validade - 1];
+    if (val instanceof Date) {
+      var dias = Math.ceil((val.getTime() - agora) / 864e5);
+      if (dias < 0) { cl.getRange(i + 2, COL.status).setValue('Vencida'); r.vencidas.push(l[COL.nome - 1]); }
+      else if (dias <= 3) r.vencendo.push(l[COL.nome - 1] + ' (' + dias + ' d)');
+    }
+    var ult = l[COL.ultimo - 1];
+    if (ult instanceof Date && agora - ult.getTime() > 14 * 864e5) r.parados.push(l[COL.nome - 1]);
+  });
+  if (r.vencidas.length) aviso_('Média', 'Licenças venceram', '', '', r.vencidas.join(', ') + '. Registre o pagamento para reativar.', new Date().toDateString());
+  if (r.vencendo.length) aviso_('Info', 'Vencem em até 3 dias', '', '', r.vencendo.join(', ') + '. Use "Cobrar no WhatsApp" no Resumo.', new Date().toDateString());
+  if (r.vencidas.length || r.vencendo.length) {
+    try {
+      var dono = Session.getEffectiveUser().getEmail();
+      if (dono && String(cfg_('Avisar por e-mail') || 'Sim').toLowerCase().indexOf('s') === 0 && MailApp.getRemainingDailyQuota() > 5) {
+        MailApp.sendEmail(dono, '📋 Centro de Comando: resumo do dia',
+          (r.vencidas.length ? 'Venceram hoje: ' + r.vencidas.join(', ') + '\n' : '') +
+          (r.vencendo.length ? 'Vencem em até 3 dias: ' + r.vencendo.join(', ') + '\n' : '') +
+          (r.parados.length ? 'Sem usar há 14+ dias: ' + r.parados.join(', ') + '\n' : '') +
+          '\nAbra o Painel de Licenças → 📊 Abrir painel de vendas.');
+      }
+    } catch (e) {}
+  }
+  if (new Date().getDay() === 1) { try { backupAgora(true); } catch (e) {} } // toda segunda
+  return r;
+}
+
+function backupAgora(silencioso) {
+  var ss = ss_(), nome = 'Backup Painel de Licenças ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
+  var it = DriveApp.getFoldersByName('Centro de Comando — backups'), pasta = it.hasNext() ? it.next() : DriveApp.createFolder('Centro de Comando — backups');
+  DriveApp.getFileById(ss.getId()).makeCopy(nome, pasta);
+  var arqs = [], f = pasta.getFiles();
+  while (f.hasNext()) arqs.push(f.next());
+  arqs.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); }).slice(8).forEach(function (x) { x.setTrashed(true); });
+  if (silencioso !== true) SpreadsheetApp.getUi().alert('Backup feito ✅', 'Cópia salva na pasta "Centro de Comando — backups" do seu Drive.', SpreadsheetApp.getUi().ButtonSet.OK);
+  return true;
+}
+
+/* Confere a instalação e diz, em português, o que falta. */
+function checarInstalacao_() {
+  var itens = [];
+  var ok = function (cond, texto, como) { itens.push({ ok: !!cond, texto: texto, como: como || '' }); };
+  var id = cfg_('ID do arquivo do painel'), arquivo = null;
+  try { if (id) arquivo = DriveApp.getFileById(id); } catch (e) {}
+  ok(id, 'ID do arquivo do painel preenchido', 'Aba Config → linha "ID do arquivo do painel" (passo 2).');
+  ok(arquivo, 'Arquivo do painel encontrado no Drive', 'Confira se o ID está certo e se o arquivo não foi apagado.');
+  if (arquivo) {
+    var txt = arquivo.getBlob().getDataAsString('UTF-8');
+    ok(/<head/i.test(txt), 'O arquivo é um painel válido', 'Suba de novo o arquivo painel-limpo.html.');
+    ok(txt.indexOf('Sd Salles') < 0 && txt.indexOf('3bpmmp4') < 0, 'Painel sem os seus dados pessoais (versão limpa)', 'Suba o painel-limpo.html em vez do painel.html antes de vender.');
+    var acesso = arquivo.getSharingAccess();
+    ok(acesso === DriveApp.Access.PRIVATE, 'Arquivo do painel não está compartilhado', 'No Drive: botão direito → Compartilhar → Acesso geral: Restrito.');
+  }
+  ok(urlServidor_(), 'Servidor implantado (App da Web)', 'Apps Script → Implantar → Nova implantação → App da Web (passo 3).');
+  var link = cfg_('Link de cópia do modelo');
+  ok(/\/copy$/.test(link), 'Link de cópia do modelo preenchido', 'Painel de vendas → 🔗 Links e ajustes (passo 4).');
+  ok(cfg_('Chave Pix'), 'Chave Pix preenchida', 'Painel de vendas → 🔗 Links e ajustes.');
+  ok(planos_().length, 'Planos e preços cadastrados', 'Painel de vendas → 🏷 Planos e preços.');
+  ok(ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'rotinaDiaria'; }), 'Rotina diária ligada', 'Menu 🔐 Licenças → 🛠 Configurar.');
+  return itens;
+}
+function verificarInstalacao() {
+  var itens = checarInstalacao_();
+  var falta = itens.filter(function (i) { return !i.ok; });
+  var txt = itens.map(function (i) { return (i.ok ? '✅ ' : '❌ ') + i.texto + (i.ok ? '' : '\n     → ' + i.como); }).join('\n');
+  SpreadsheetApp.getUi().alert(falta.length ? 'Faltam ' + falta.length + ' item(ns)' : 'Tudo certo para vender ✅', txt, SpreadsheetApp.getUi().ButtonSet.OK);
 }

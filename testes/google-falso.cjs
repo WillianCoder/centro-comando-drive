@@ -32,13 +32,13 @@ function contexto(ss) {
     CacheService: { getScriptCache: () => ({ get: k => (ctx.__cache[k] ?? null), put: (k, v) => { ctx.__cache[k] = v; }, remove: k => { delete ctx.__cache[k]; } }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => 'dono@gmail.com' }), getActiveUser: () => ({ getEmail: () => (ctx.__ativo ?? 'dono@gmail.com') }) },
     MailApp: { getRemainingDailyQuota: () => 100, sendEmail: (para, assunto, corpo) => ctx.__emails.push({ para, assunto, corpo }) },
-    DriveApp: { getFileById: () => ({ getBlob: () => ({ getDataAsString: () => "<html><head></head>const A='1abcdefghijklmnopqrstuvwxyz12'</html>" }) }) },
-    Utilities: { base64EncodeWebSafe: b => Buffer.from(b.map(x => (x + 256) % 256)).toString('base64url'), getUuid: () => require('crypto').randomUUID(), computeDigest: () => Array.from({ length: 32 }, () => Math.floor(Math.random() * 256) - 128), DigestAlgorithm: {} },
+    DriveApp: { Access: { PRIVATE: 'PRIVATE' }, getFileById: () => ({ getSharingAccess: () => 'PRIVATE', getBlob: () => ({ getDataAsString: () => "<html><head></head>const A='1abcdefghijklmnopqrstuvwxyz12'</html>" }) }) },
+    Utilities: { formatDate: (d) => new Date(d).toISOString().slice(0, 16), base64EncodeWebSafe: b => Buffer.from(b.map(x => (x + 256) % 256)).toString('base64url'), getUuid: () => require('crypto').randomUUID(), computeDigest: () => Array.from({ length: 32 }, () => Math.floor(Math.random() * 256) - 128), DigestAlgorithm: {} },
     ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: {} },
-    ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TESTE/exec' }) },
+    ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TESTE/exec' }), getProjectTriggers: () => ctx.__gatilhos.map(h => ({ getHandlerFunction: () => h })), newTrigger: h => { const t = { timeBased: () => t, everyDays: () => t, atHour: () => t, create: () => ctx.__gatilhos.push(h) }; return t; } },
     console
   };
-  ctx.__cache = {}; ctx.__emails = [];
+  ctx.__cache = {}; ctx.__emails = []; ctx.__gatilhos = [];
   vm.createContext(ctx); return ctx;
 }
 

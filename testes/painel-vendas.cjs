@@ -25,7 +25,7 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
 
   // Vender
   await aba('vender');
-  await p.fill('#vNome', 'João Pereira'); await p.fill('#vCont', '11988887777');
+  await p.fill('#vNome', 'João Pereira'); await p.fill('#vCont', '11988887777'); await p.fill('#vUni', '5º BPM/M · P4');
   await p.selectOption('#vPlano', 'Mensal');
   assert.equal(await p.inputValue('#vValor'), '29.9', 'preço do plano preenche sozinho');
   await p.click('#bVender'); await p.waitForTimeout(400);
@@ -35,6 +35,7 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   assert.ok(zap.startsWith('https://wa.me/5511988887777?text='), 'link do WhatsApp');
   await p.screenshot({ path: 'testes/saida/vendas-vender.png' });
   const chave = msg.match(/CC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}/)[0];
+  assert.equal(S.acharCliente_(ss.abas['Clientes'], chave).valores[S.COL.unidade - 1], '5º BPM/M · P4', 'unidade salva');
 
   // Pagamentos
   await aba('pagamentos'); await p.waitForTimeout(200);
@@ -84,6 +85,9 @@ fs.mkdirSync('testes/saida', { recursive: true }); fs.writeFileSync('testes/said
   // Ajustes e links
   await aba('links'); await p.fill('#cLink', 'https://docs.google.com/spreadsheets/d/NOVO/edit#gid=0'); await p.click('#bSalvarCfg'); await p.waitForTimeout(300);
   assert.equal(S.cfg_('Link de cópia do modelo'), 'https://docs.google.com/spreadsheets/d/NOVO/copy', 'link convertido para /copy');
+  await p.click('#bVerif'); await p.waitForTimeout(400);
+  assert.ok(/Faltam|Tudo certo/.test(await p.textContent('#verif')), 'verificar instalação mostra o resultado');
+  await p.screenshot({ path: 'testes/saida/vendas-verificar.png' });
 
   // Gestores: mestre cria um gestor que só vende e vê
   await aba('gestores'); await p.waitForTimeout(200);

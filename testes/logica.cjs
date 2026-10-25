@@ -116,6 +116,25 @@ api('', 'gestorSalvar', g.id, 'Ativo', '');
 api('', 'gestorNovoLink', g.id);
 assert.throws(() => api(tok, 'dadosPainelDono'), /Link inválido/, 'link antigo para de funcionar');
 console.log('gestores ok (permissões, só os próprios clientes, bloqueio, troca de link, atividade)');
+// ---- unidade no cabeçalho ----
+const cu = S.criarLicenca('Unidade X', '', { unidade: '5º BPM/M · Seção P4' });
+S.painelEditarCliente_(JSON.stringify({ chave: cu.chave, unidade: '5º BPM/M · Seção P4' }));
+const hu = S.marcarPainel_('<html><head></head><body><small>MINHA UNIDADE · MINHA SEÇÃO</small></body></html>', cu.chave, 'Unidade X', '5º BPM/M · Seção P4 <b>');
+assert.ok(hu.includes('<small>5º BPM/M · SEÇÃO P4 B</small>'), 'unidade no cabeçalho, sem HTML');
+// ---- rotina diária ----
+S.__emails.length = 0; S.__cache = {};
+const venc = S.criarLicenca('Vence Logo', '', {}), ja = S.criarLicenca('Já Venceu', '', {});
+S.painelEditarCliente_(JSON.stringify({ chave: venc.chave, validade: new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10) }));
+S.painelEditarCliente_(JSON.stringify({ chave: ja.chave, validade: '2021-01-01' }));
+const rot = S.rotinaDiaria();
+assert.ok(rot.vencidas.includes('Já Venceu') && rot.vencendo.some(x => x.startsWith('Vence Logo')), 'rotina acha vencidas e vencendo');
+assert.equal(S.acharCliente_(ss.abas['Clientes'], ja.chave).valores[S.COL.status - 1], 'Vencida', 'rotina marca vencida');
+assert.ok(S.__emails.some(e => e.assunto.includes('resumo do dia')), 'resumo por e-mail');
+S.instalarRotina_(); S.instalarRotina_(); assert.equal(S.__gatilhos.filter(h => h === 'rotinaDiaria').length, 1, 'rotina instalada uma vez só');
+// ---- verificar instalação ----
+const itens = S.checarInstalacao_();
+assert.ok(itens.length >= 8 && itens.every(i => typeof i.ok === 'boolean' && i.texto), 'verificação lista itens');
+console.log('rotina, unidade e verificação ok');
 console.log('servidor ok (licenças, planos, pagamentos, abas, proteção e avisos)');
 
 // ---- Banco do cliente ----
@@ -145,3 +164,19 @@ C.gravarCache_('<html><head></head><body>PAINEL SECRETO</body></html>');
 assert.ok(!guardado.bytes.toString('latin1').includes('PAINEL SECRETO'), 'cache não fica legível');
 assert.equal(C.lerCache_(), '<html><head></head><body>PAINEL SECRETO</body></html>');
 console.log('cache protegido ok');
+// ---- backup e restauração do cliente ----
+const arquivos = [];
+const pastaB = { getId: () => 'PB', createFile: b => { const f = { getId: () => 'B' + arquivos.length, getName: () => 'b', getDateCreated: () => new Date(Date.now() + arquivos.length), setTrashed() { f.lixo = true; }, getBlob: () => b }; arquivos.push(f); return f; }, getFiles: () => { const l = arquivos.filter(f => !f.lixo); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; }, getFoldersByName: () => ({ hasNext: () => true, next: () => pastaB }) };
+C.DriveApp = { getFolderById: () => pastaB, getFileById: id => arquivos.find(f => f.getId() === id) };
+C.PropertiesService.getScriptProperties().setProperty('PASTA_ID', 'PB');
+C.CacheService.getScriptCache().removeAll = () => {};
+C.pDbSet('"notas/principal"', '{"texto":"versão boa"}', 'false');
+C.fazerBackup_();
+C.pDbSet('"notas/principal"', '{"texto":"apagado sem querer"}', 'false');
+const backups = C.listarBackups_();
+C.restaurarBackup_(backups[backups.length - 1].id);
+assert.equal(JSON.parse(C.pDbGet('"notas/principal"')).texto, 'versão boa', 'restaurou o backup');
+for (let i = 0; i < 20; i++) C.fazerBackup_();
+assert.ok(arquivos.filter(f => !f.lixo).length <= 14, 'guarda só os 14 últimos');
+C.ligarBackupDiario_(); C.ligarBackupDiario_(); assert.equal(C.__gatilhos.length, 1, 'backup diário ligado uma vez');
+console.log('backup do cliente ok');
